@@ -1,19 +1,28 @@
-# CAMORRO v3
+# 🎯 Camoro - Instagram Profile Scanner
 
-Instagram authorized testing toolkit:
-- OSINT Recon + avatar download
-- Smart password generator (18000+)
-- Brute force with live progress
-- Proxy rotation
-- Resume attack
-- Multi-target / combo
-- HTML reports
+**Camoro** is an OSINT reconnaissance tool for gathering public Instagram profile information. Designed for security professionals and penetration testers.
 
-## Install (Termux)
+## ⚠️ Legal Disclaimer
+
+This tool is intended for **authorized security testing only**. Only use against accounts you own or have explicit written permission to test. The user assumes all responsibility for lawful usage.
+
+## ✨ Features
+
+- 📊 **Follower/Following/Posts count** extraction
+- 🔒 **Private/Public account detection**
+- ✓ **Verified account detection**
+- 📝 **Bio & External URL extraction**
+- 🖼️ **HD Profile picture URL retrieval**
+- 💾 **JSON export** of results
+- 🎨 **Beautiful colored terminal UI**
+- 🔄 **Multiple fallback extraction methods**
+- 📱 **Cross-platform**: Termux, Linux, iSH, macOS, Windows
+
+## 📦 Installation
+
+### Termux
 ```bash
-pkg update && pkg upgrade -y
-pkg install python git -y
-git clone https://github.com/camorro5/camorro.git
-cd camorro
-pip install -r requirements.txt
-python camorro.py
+pkg update && pkg install git python3 -y
+git clone https://github.com/YOUR_USERNAME/camoro.git
+cd camoro
+bash setup.sh
