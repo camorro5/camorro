@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-camoro v2.1 - Instagram Profile Information Gathering Tool
-Updated: July 2026
-Fix: Handles both flat (follower_count) and nested (edge_followed_by.count) formats
+camoro v3.0 - Instagram Profile Scanner
+Method 1: instaloader (stable, well-maintained)
+Method 2: i.instagram.com API (fast fallback)
+Method 3: HTML scraping (last resort)
 """
 
 import json
@@ -11,13 +12,6 @@ import sys
 import os
 import textwrap
 from datetime import datetime
-
-try:
-    from curl_cffi import requests as cffi_requests
-    HAS_CURL_CFFI = True
-except ImportError:
-    import requests
-    HAS_CURL_CFFI = False
 
 # ==================== COLORS ====================
 class C:
@@ -29,190 +23,224 @@ def cprint(text, color=C.W, bold=False):
     prefix = C.BL if bold else ""
     print(f"{prefix}{color}{text}{C.RE}")
 
-# ==================== CAMORO v2.1 ====================
+# ==================== CAMORO v3 ====================
 class Camoro:
     IG_APP_ID = "936619743392459"
 
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
-    ]
+    IPHONE_UA = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5.1 "
+        "Mobile/15E148 Safari/604.1"
+    )
 
     def __init__(self, debug=False):
         self.debug = debug
-        self._init_session()
 
-    def _init_session(self):
-        import random
-        if HAS_CURL_CFFI:
-            self.session = cffi_requests.Session()
-        else:
-            self.session = requests.Session()
-
-        self.session.headers.update({
-            'User-Agent': random.choice(self.USER_AGENTS),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-        })
-
-    def _warmup(self):
-        """تسخين الجلسة بزيارة instagram.com + الحصول على csrf token"""
-        cprint("[*] Warming up session...", C.C)
+    # ========== METHOD 1: INSTALOADER ==========
+    def _try_instaloader(self, username):
+        """Instaloader - المكتبة الأكثر ثباتاً لسحب بيانات إنستقرام العامة"""
+        cprint("[*] Method 1: Instaloader (stable)...", C.C)
         try:
-            # الزيارة الأولى للحصول على الكوكيز الأساسية
-            r1 = self.session.get("https://www.instagram.com/", timeout=15)
+            import instaloader
+
+            L = instaloader.Instaloader(
+                download_pictures=False,
+                download_videos=False,
+                download_comments=False,
+                save_metadata=False,
+                compress_json=False,
+                quiet=True,
+                user_agent=self.IPHONE_UA,
+            )
+
+            profile = instaloader.Profile.from_username(L.context, username)
+
+            result = {
+                'username': profile.username,
+                'full_name': profile.full_name,
+                'bio': profile.biography,
+                'followers': profile.followers,
+                'following': profile.followees,
+                'posts': profile.mediacount,
+                'is_private': profile.is_private,
+                'is_verified': profile.is_verified,
+                'is_business': profile.is_business_account,
+                'profile_pic_hd': profile.profile_pic_url,
+                'profile_pic': profile.profile_pic_url,
+                'external_url': profile.external_url or '',
+                'category': profile.business_category_name or 'N/A',
+                'id': str(profile.userid),
+                'highlight_reel_count': profile.igtvcount,
+                '_source': 'instaloader',
+            }
+
             if self.debug:
-                cprint(f"    Warmup status: {r1.status_code}", C.Y)
-                cprint(f"    Cookies: {dict(self.session.cookies)}", C.Y)
+                cprint(f"    [instaloader] ✓ Success", C.G)
 
-            # استخراج csrf token إن وجد
-            if 'csrftoken' not in self.session.cookies:
-                # نجرب الزيارة مرة ثانية
-                self.session.get("https://www.instagram.com/accounts/login/", timeout=15)
+            return result
 
-            return True
+        except ImportError:
+            cprint("[!] instaloader not installed. Run: pip3 install instaloader", C.Y)
+        except instaloader.exceptions.ProfileNotExistsException:
+            cprint("[!] Profile does not exist", C.R)
+        except instaloader.exceptions.LoginRequiredException:
+            cprint("[!] Login required - profile may be private or blocked", C.Y)
         except Exception as e:
             if self.debug:
-                cprint(f"    Warmup error: {e}", C.R)
-            return False
-
-    def fetch_profile(self, username):
-        username = username.strip().replace('@', '')
-
-        # تسخين
-        self._warmup()
-
-        # الطريقة 1: i.instagram.com (أفضل طريقة)
-        cprint("[*] Method 1: i.instagram.com API...", C.C)
-        data = self._try_api("i.instagram.com", username)
-        if data and data.get('followers', 0) > 0:
-            return data
-        if data:
-            cprint("[!] Got partial data from method 1, trying next...", C.Y)
-
-        # الطريقة 2: www.instagram.com
-        cprint("[*] Method 2: www.instagram.com API...", C.C)
-        data = self._try_api("www.instagram.com", username)
-        if data and data.get('followers', 0) > 0:
-            return data
-
-        # الطريقة 3: HTML scraping مع __additionalDataLoaded
-        cprint("[*] Method 3: HTML scraping...", C.C)
-        data = self._try_html(username)
-        if data:
-            return data
-
-        # إذا وصلنا هنا ومعانا بيانات جزئية من method 1 أو 2، نرجعها
-        if data:
-            return data
+                cprint(f"    [instaloader] Error: {str(e)[:100]}", C.R)
+            else:
+                cprint(f"[-] Instaloader failed: {str(e)[:60]}", C.Y)
 
         return None
 
-    def _try_api(self, domain, username):
-        """استدعاء web_profile_info من domain محدد"""
-        try:
-            url = f"https://{domain}/api/v1/users/web_profile_info/?username={username}"
+    # ========== METHOD 2: API ==========
+    def _try_api(self, username):
+        """i.instagram.com web_profile_info API"""
+        cprint("[*] Method 2: i.instagram.com API...", C.C)
 
+        try:
+            # استخدام curl_cffi إذا متوفر
+            try:
+                from curl_cffi import requests as req
+                if self.debug:
+                    cprint("    Using curl_cffi (TLS fingerprint spoofing)", C.Y)
+            except ImportError:
+                import requests as req
+                if self.debug:
+                    cprint("    Using standard requests (may be blocked)", C.Y)
+
+            session = req.Session()
+            session.headers.update({
+                'User-Agent': self.IPHONE_UA,
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+            })
+
+            # الخطوة 1: تسخين الجلسة - زيارة instagram.com
+            cprint("    Warming up session...", C.C)
+            try:
+                r = session.get("https://www.instagram.com/", timeout=20)
+                if self.debug:
+                    cprint(f"    Warmup status: {r.status_code}", C.Y)
+                    cprint(f"    Cookies: {dict(session.cookies)}", C.Y)
+            except Exception as e:
+                if self.debug:
+                    cprint(f"    Warmup failed: {e}", C.Y)
+
+            # الخطوة 2: استدعاء الـ API
+            url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
             headers = {
                 'x-ig-app-id': self.IG_APP_ID,
                 'x-requested-with': 'XMLHttpRequest',
-                'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
                 'Origin': 'https://www.instagram.com',
                 'Referer': f'https://www.instagram.com/{username}/',
-                'Sec-Fetch-Site': 'same-origin' if domain == 'www.instagram.com' else 'same-site',
+                'Sec-Fetch-Site': 'same-site',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Dest': 'empty',
             }
 
-            resp = self.session.get(url, headers=headers, timeout=20)
+            resp = session.get(url, headers=headers, timeout=20)
 
             if self.debug:
-                cprint(f"    [{domain}] Status: {resp.status_code}", C.Y)
-                cprint(f"    [{domain}] Content length: {len(resp.text)}", C.Y)
+                cprint(f"    API status: {resp.status_code}", C.Y)
+                cprint(f"    Response length: {len(resp.text)} chars", C.Y)
 
-            if resp.status_code == 200:
-                raw = resp.json()
+            if resp.status_code != 200:
+                cprint(f"[!] HTTP {resp.status_code}", C.Y)
+                if resp.status_code == 403:
+                    cprint("[!] IP blocked by Instagram. Use VPN or proxy.", C.R)
+                return None
 
+            raw = resp.json()
+            user = raw.get('data', {}).get('user')
+
+            if not user:
+                cprint("[!] No user data in response", C.Y)
                 if self.debug:
-                    # طباعة أول 1000 حرف من الـ response عشان نشوف الهيكل
-                    cprint(f"    [{domain}] Response keys: {list(raw.keys())}", C.Y)
-                    if 'data' in raw:
-                        user_keys = list(raw['data'].get('user', {}).keys())
-                        cprint(f"    [{domain}] User keys: {user_keys}", C.Y)
+                    cprint(f"    Raw keys: {list(raw.keys())}", C.Y)
+                return None
 
-                user = raw.get('data', {}).get('user')
-                if user:
-                    return self._parse(user, raw)
+            if self.debug:
+                cprint(f"    User fields: {list(user.keys())}", C.Y)
 
-            elif resp.status_code == 403:
-                cprint(f"[!] 403 Forbidden on {domain} - IP may be blocked", C.Y)
+            result = self._parse_user_obj(user)
+            result['_source'] = 'api'
+            return result
 
         except Exception as e:
             if self.debug:
-                cprint(f"    [{domain}] Error: {str(e)[:100]}", C.R)
+                cprint(f"    API error: {str(e)[:150]}", C.R)
+            else:
+                cprint(f"[-] API failed: {str(e)[:60]}", C.Y)
         return None
 
+    # ========== METHOD 3: HTML SCRAPING ==========
     def _try_html(self, username):
-        """استخراج من HTML"""
+        """استخراج من HTML الصفحة"""
+        cprint("[*] Method 3: HTML scraping...", C.C)
+
         try:
-            url = f"https://www.instagram.com/{username}/"
-            headers = {
-                'Accept': 'text/html,application/xhtml+xml',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-            }
-            resp = self.session.get(url, headers=headers, timeout=20)
+            import requests as req
+            session = req.Session()
+            session.headers.update({'User-Agent': self.IPHONE_UA})
+
+            resp = session.get(
+                f"https://www.instagram.com/{username}/",
+                timeout=20,
+                headers={'Accept': 'text/html,application/xhtml+xml'}
+            )
+
+            if resp.status_code != 200:
+                return None
+
             html = resp.text
 
             if self.debug:
-                cprint(f"    HTML status: {resp.status_code}, length: {len(html)}", C.Y)
+                cprint(f"    HTML length: {len(html)} chars", C.Y)
 
-            # محاولة 1: __additionalDataLoaded
-            patterns = [
-                r'window\.__additionalDataLoaded\(\s*[\'"]feed[^\'"]*[\'"]\s*,\s*({.*?})\s*\)\s*;',
-                r'window\.__additionalDataLoaded\(\s*[\'"][^\'"]*[\'"]\s*,\s*({.*?})\s*\)',
-                r'window\._sharedData\s*=\s*({.*?});\s*</script>',
-                r'<script[^>]*>window\.__INITIAL_STATE__\s*=\s*({.*?});</script>',
-            ]
+            # المحاولة 1: window.__additionalDataLoaded
+            pattern = r'window\.__additionalDataLoaded\(\s*[\'"][^\'"]*[\'"]\s*,\s*({.*?})\s*\)\s*;'
+            match = re.search(pattern, html, re.DOTALL)
 
-            for pattern in patterns:
-                match = re.search(pattern, html, re.DOTALL)
-                if match:
-                    try:
-                        raw = json.loads(match.group(1))
-                        user = None
+            if match:
+                try:
+                    data = json.loads(match.group(1))
+                    user = data.get('graphql', {}).get('user')
+                    if user:
+                        result = self._parse_user_obj(user)
+                        result['_source'] = 'html_additionalData'
+                        return result
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
-                        if 'graphql' in raw:
-                            user = raw['graphql'].get('user')
-                        elif 'entry_data' in raw:
-                            profiles = raw['entry_data'].get('ProfilePage', [])
-                            if profiles:
-                                user = profiles[0].get('graphql', {}).get('user')
-                        elif 'user' in raw:
-                            user = raw.get('user')
-
+            # المحاولة 2: window._sharedData (قديم)
+            match = re.search(r'window\._sharedData\s*=\s*({.*?});\s*</script>', html, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group(1))
+                    profiles = data.get('entry_data', {}).get('ProfilePage', [])
+                    if profiles:
+                        user = profiles[0].get('graphql', {}).get('user')
                         if user:
-                            return self._parse(user, raw)
-                    except (json.JSONDecodeError, KeyError):
-                        continue
+                            result = self._parse_user_obj(user)
+                            result['_source'] = 'html_sharedData'
+                            return result
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    pass
 
-            # محاولة 2: LD+JSON schema
+            # المحاولة 3: LD+JSON
             ld_match = re.search(
-                r'<script type="application/ld\+json">(.*?)</script>',
+                r'<script type="application/ld\+json">\s*(.*?)\s*</script>',
                 html, re.DOTALL
             )
             if ld_match:
                 try:
-                    ld_data = json.loads(ld_match.group(1))
-                    if ld_data.get('@type') == 'Person':
-                        return self._parse_ld_json(ld_data, username)
+                    ld = json.loads(ld_match.group(1))
+                    if ld.get('@type') == 'Person':
+                        result = self._parse_ld_json(ld, username)
+                        result['_source'] = 'html_ldjson'
+                        return result
                 except json.JSONDecodeError:
                     pass
 
@@ -221,59 +249,66 @@ class Camoro:
                 cprint(f"    HTML error: {str(e)[:100]}", C.R)
         return None
 
-    def _parse(self, user, raw=None):
-        """
-        تحليل بيانات المستخدم.
-        يتعامل مع الصيغتين:
-        - Flat: follower_count, following_count, media_count
-        - Nested: edge_followed_by.count, edge_follow.count, edge_owner_to_timeline_media.count
-        """
-        def _get_count(*keys_sets):
-            """محاولة استخراج count من عدة مسارات محتملة"""
-            for keys in keys_sets:
-                val = user
-                for k in keys:
-                    if isinstance(val, dict):
-                        val = val.get(k)
-                    else:
-                        val = None
-                        break
-                if val is not None and not isinstance(val, dict):
-                    return val
-            return 0
+    # ========== PARSING ==========
+    def _parse_user_obj(self, user):
+        """تحليل كائن user من API أو HTML - يتعامل مع جميع الصيغ"""
 
-        followers = _get_count(
-            ('follower_count',),
-            ('edge_followed_by', 'count'),
-            ('edge_follow', 'count'),  # بعض الإصدارات تخلط
+        def _get(*keys):
+            """استخراج قيمة من مسار متداخل"""
+            val = user
+            for k in keys:
+                if isinstance(val, dict):
+                    val = val.get(k)
+                else:
+                    return None
+            return val
+
+        # Followers: جرب كل الصيغ الممكنة
+        followers = (
+            _get('follower_count') or
+            _get('edge_followed_by', 'count') or
+            _get('edge_follow', 'count') or
+            0
         )
 
-        following = _get_count(
-            ('following_count',),
-            ('edge_follow', 'count'),
-            ('edge_followed_by', 'count'),
+        # Following
+        following = (
+            _get('following_count') or
+            _get('edge_follow', 'count') or
+            _get('edge_followed_by', 'count') or
+            0
         )
 
-        posts = _get_count(
-            ('media_count',),
-            ('edge_owner_to_timeline_media', 'count'),
-            ('edge_felix_video_timeline', 'count'),
+        # Posts
+        posts = (
+            _get('media_count') or
+            _get('edge_owner_to_timeline_media', 'count') or
+            0
         )
 
-        highlight_count = _get_count(
-            ('highlight_reel_count',),
+        # Highlights
+        highlights = (
+            _get('highlight_reel_count') or
+            0
         )
 
-        # profile_pic: جرب hd أولاً ثم العادي
-        pp = user.get('profile_pic_url_hd') or user.get('profile_pic_url', '')
+        # Profile picture
+        pp = _get('profile_pic_url_hd') or _get('profile_pic_url') or ''
 
-        # external url
-        ext_url = user.get('external_url', '') or user.get('bio_links', [{}])[0].get('url', '')
+        # External URL
+        ext_url = _get('external_url') or ''
+        if not ext_url:
+            bio_links = _get('bio_links')
+            if bio_links and isinstance(bio_links, list) and len(bio_links) > 0:
+                ext_url = bio_links[0].get('url', '')
 
-        # category
-        category = user.get('category_name') or user.get('category', 'N/A')
+        # Category
+        category = _get('category_name') or _get('category') or 'N/A'
 
-        result = {
+        # ID
+        uid = _get('id') or _get('pk') or 'N/A'
+
+        return {
             'username': user.get('username', 'N/A'),
             'full_name': user.get('full_name', 'N/A'),
             'bio': user.get('biography', user.get('bio', '')),
@@ -284,49 +319,33 @@ class Camoro:
             'is_verified': user.get('is_verified', False),
             'is_business': user.get('is_business_account', user.get('is_business', False)),
             'profile_pic_hd': pp,
-            'profile_pic': user.get('profile_pic_url', pp),
+            'profile_pic': pp,
             'external_url': ext_url,
             'category': category,
-            'id': str(user.get('id') or user.get('pk', 'N/A')),
-            'highlight_reel_count': int(highlight_count) if highlight_count else 0,
+            'id': str(uid),
+            'highlight_reel_count': int(highlights) if highlights else 0,
         }
-
-        # إذا فيه business contact info
-        if user.get('business_contact_method'):
-            result['business_contact'] = user.get('business_contact_method')
-            result['business_email'] = user.get('business_email', '')
-            result['business_phone'] = user.get('business_phone_number', '')
-
-        return result
 
     def _parse_ld_json(self, ld, username):
         """تحليل LD+JSON schema"""
         followers = 0
-        following = 0
-        posts = 0
-
-        if 'InteractionStatistic' in ld:
-            for stat in ld['InteractionStatistic']:
-                name = stat.get('name', '').lower()
-                count = stat.get('userInteractionCount', 0)
-                if 'follow' in name and 'ing' not in name:
-                    followers = int(count) if count else 0
-                elif 'following' in name or 'follows' in name:
-                    following = int(count) if count else 0
-                elif 'post' in name or 'media' in name:
-                    posts = int(count) if count else 0
+        for stat in ld.get('InteractionStatistic', []):
+            name = stat.get('name', '').lower()
+            count = stat.get('userInteractionCount', 0)
+            if 'follow' in name and 'ing' not in name:
+                followers = int(count) if count else 0
 
         return {
             'username': ld.get('alternateName', username),
             'full_name': ld.get('name', 'N/A'),
             'bio': ld.get('description', ''),
             'followers': followers,
-            'following': following,
-            'posts': posts,
+            'following': 0,
+            'posts': 0,
             'is_private': False,
             'is_verified': False,
             'is_business': False,
-            'profile_pic_hd': ld.get('image', {}).get('url', '') if isinstance(ld.get('image'), dict) else ld.get('image', ''),
+            'profile_pic_hd': ld.get('image', ''),
             'profile_pic': '',
             'external_url': ld.get('url', ''),
             'category': 'N/A',
@@ -334,9 +353,30 @@ class Camoro:
             'highlight_reel_count': 0,
         }
 
+    # ========== MAIN FETCH ==========
+    def fetch_profile(self, username):
+        username = username.strip().replace('@', '')
+
+        # الطريقة 1: Instaloader (الأكثر ثباتاً)
+        data = self._try_instaloader(username)
+        if data:
+            return data
+
+        # الطريقة 2: API مباشر
+        data = self._try_api(username)
+        if data:
+            return data
+
+        # الطريقة 3: HTML scraping
+        data = self._try_html(username)
+        if data:
+            return data
+
+        return None
+
+    # ========== DISPLAY ==========
     def _fmt(self, num):
-        if num is None:
-            return '0'
+        if num is None: return '0'
         return f"{num:,}"
 
     def display(self, data):
@@ -344,18 +384,17 @@ class Camoro:
 
         print(f"""
     {C.P}╔══════════════════════════════════════════════╗
-    ║           {C.BL}C A M O R O  v2.1{C.RE}{C.P}                  ║
+    ║           {C.BL}C A M O R O  v3.0{C.RE}{C.P}                  ║
     ║       Instagram Profile Scanner            ║
     ╚══════════════════════════════════════════════╝{C.RE}
 """)
 
-        # Status badges
+        # Status
         priv = f"{C.R}PRIVATE 🔒{C.RE}" if data['is_private'] else f"{C.G}PUBLIC 🌐{C.RE}"
         parts = [f"Status: {priv}"]
-        if data['is_verified']:
-            parts.append(f"{C.B}VERIFIED ✓{C.RE}")
-        if data['is_business']:
-            parts.append(f"{C.Y}BUSINESS{C.RE}")
+        if data['is_verified']: parts.append(f"{C.B}VERIFIED ✓{C.RE}")
+        if data['is_business']: parts.append(f"{C.Y}BUSINESS{C.RE}")
+        if data.get('_source'): parts.append(f"{C.C}[{data['_source']}]{C.RE}")
         print("  " + " | ".join(parts) + "\n")
 
         print(f"  {C.C}{C.BL}╔══ Profile Information ═══════════════════════╗{C.RE}")
@@ -374,24 +413,15 @@ class Camoro:
         for label, value in rows:
             print(f"  {C.G}{label}{C.RE}: {C.W}{value}{C.RE}")
 
-        # Business info
-        if data.get('business_email'):
-            print(f"  {C.G}📧 Business Email{C.RE}: {C.W}{data['business_email']}{C.RE}")
-        if data.get('business_phone'):
-            print(f"  {C.G}📞 Business Phone{C.RE}: {C.W}{data['business_phone']}{C.RE}")
-
-        # Bio
         if data.get('bio'):
             print(f"\n  {C.Y}{C.BL}📝 Bio:{C.RE}")
             for line in textwrap.wrap(data['bio'], width=46):
                 print(f"  {C.W}{line}{C.RE}")
 
-        # External URL
         if data.get('external_url'):
             print(f"\n  {C.C}{C.BL}🔗 External URL:{C.RE}")
             print(f"  {C.W}{data['external_url']}{C.RE}")
 
-        # Profile Picture
         if data.get('profile_pic_hd'):
             print(f"\n  {C.P}{C.BL}🖼️  Profile Picture:{C.RE}")
             print(f"  {C.W}{data['profile_pic_hd']}{C.RE}")
@@ -413,7 +443,7 @@ def banner():
   ████████▀   ▀█   ███   █▀   ▀█   ███   █▀   ▀██████▀  ████████▀    ███    ███
 {C.RE}
 {C.C}{C.BL}     Instagram Profile Information Gathering Tool
-{C.RE}{C.W}                    Version 2.1 | July 2026
+{C.RE}{C.W}                    Version 3.0 | July 2026
 {C.RE}
 """)
 
@@ -427,27 +457,31 @@ def save_json(data, username):
 
 def main():
     import argparse
-
-    parser = argparse.ArgumentParser(description='Camoro - Instagram Profile Scanner')
+    parser = argparse.ArgumentParser()
     parser.add_argument('-u', '--username', help='Target username')
-    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('-d', '--debug', action='store_true', help='Debug mode')
     parser.add_argument('-o', '--output', help='Output JSON file')
     args = parser.parse_args()
 
     os.system('clear' if os.name == 'posix' else 'cls')
     banner()
 
-    if HAS_CURL_CFFI:
-        cprint("[✓] curl_cffi: TLS fingerprint evasion ACTIVE", C.G)
-    else:
-        cprint("[!] curl_cffi not installed. Run: pip3 install curl_cffi", C.Y)
+    # تحقق من المكتبات
+    try:
+        import instaloader
+        cprint("[✓] instaloader: AVAILABLE", C.G)
+    except ImportError:
+        cprint("[!] instaloader not installed!", C.Y)
+        cprint("    Run: pip3 install instaloader", C.Y)
 
-    if args.debug:
-        cprint("[D] Debug mode ON - Raw API responses will be shown", C.Y)
+    try:
+        from curl_cffi import requests
+        cprint("[✓] curl_cffi: AVAILABLE", C.G)
+    except ImportError:
+        cprint("[!] curl_cffi not installed (optional)", C.Y)
+        cprint("    Run: pip3 install curl_cffi", C.Y)
 
     camoro = Camoro(debug=args.debug)
-
-    # إذا تم تمرير username مباشرة من command line
     target = args.username
 
     while True:
@@ -466,49 +500,45 @@ def main():
                 continue
 
             target = target.replace('@', '')
-
-            print(f"\n{C.C}─── Fetching: @{target} ───{C.RE}\n")
+            print(f"\n{C.C}═══ Fetching: @{target} ═══{C.RE}\n")
 
             data = camoro.fetch_profile(target)
 
             if data is None:
-                cprint(f"\n[✗] FAILED to fetch @{target}", C.R)
-                cprint("\n[!] Troubleshooting:", C.Y)
-                print("  1. تأكد أن الحساب موجود وعام (Public)")
-                print("  2. جرب تستخدم VPN - إنستقرام يحجب بعض الـ IPs")
-                print("  3. جرب مع --debug عشان تشوف الـ raw response")
-                print("  4. ثبت curl_cffi: pip3 install curl_cffi")
+                cprint(f"\n[✗] FAILED - All 3 methods exhausted", C.R)
+                cprint("\n[!] الأسباب المحتملة:", C.Y)
+                print("  1. الحساب خاص (Private) أو غير موجود")
+                print("  2. الإنستقرام حاجب IP حقك - جرب VPN")
+                print("  3. تأكد من تثبيت: pip3 install instaloader curl_cffi")
+                print("  4. جرب مع وضع التصحيح: python3 camoro.py -d -u username")
             else:
                 camoro.display(data)
 
-                # Auto-save إذا محدد output
                 if args.output:
                     f = save_json(data, target)
-                    cprint(f"[✓] Auto-saved: {f}", C.G)
+                    cprint(f"[✓] Saved: {f}", C.G)
                 else:
                     sv = input(f"{C.G}[?]{C.RE} Save to file? {C.W}(y/n){C.RE}: ").strip().lower()
                     if sv in ['y', 'yes', 'نعم']:
                         f = save_json(data, target)
                         cprint(f"[✓] Saved: {f}", C.G)
 
-            # إذا username من command line، نخرج بعد التنفيذ
             if args.username:
                 sys.exit(0)
 
             target = None
-
             again = input(f"\n{C.G}[?]{C.RE} Scan another? {C.W}(y/n){C.RE}: ").strip().lower()
             if again not in ['y', 'yes', 'نعم']:
                 cprint("\n👋 Goodbye!", C.P)
                 sys.exit(0)
 
         except KeyboardInterrupt:
-            cprint("\n\n👋 Interrupted. Goodbye!", C.Y)
+            cprint("\n\n👋 Goodbye!", C.Y)
             sys.exit(0)
         except Exception as e:
             cprint(f"\n[✗] Error: {e}", C.R)
-            import traceback
             if args.debug:
+                import traceback
                 traceback.print_exc()
 
 
