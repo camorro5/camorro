@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Camoro API rotator + device fingerprint forge."""
+"""Camoro API rotator + device fingerprint forge.
+   REPAIRED: removed mobile_i_login endpoint that always failed
+            because swarm sends web payload (enc_password) to mobile API.
+"""
 
 import hashlib
 import random
@@ -9,7 +12,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-
+# ── تم الحذف: mobile_i_login ──
+# المشكلة: swarm.py يرسل دائماً enc_password (صيغة ويب)
+#          لكن mobile_i_login يتوقع password عادي + device_id
+#          النتيجة: فشل دائم bad_api
+# الحل: 4 endpoints ويب فقط — كلهم يتعاملون مع enc_password
 LOGIN_ENDPOINTS = [
     {
         "name": "web_ajax_www",
@@ -43,14 +50,6 @@ LOGIN_ENDPOINTS = [
         "referer": "https://www.instagram.com/",
         "style": "web",
     },
-    {
-        "name": "mobile_i_login",
-        "login_url": "https://i.instagram.com/api/v1/accounts/login/",
-        "home_url": "https://i.instagram.com/",
-        "origin": "https://www.instagram.com",
-        "referer": "https://www.instagram.com/",
-        "style": "mobile",
-    },
 ]
 
 APP_IDS = [
@@ -72,7 +71,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 Instagram 312.0.0.0.0",
-    "Instagram 310.0.0.0.0 Android (34/14; 440dpi; 1080x2400; Google/google; Pixel 8; shiba; shiba; en_US; 512345678)",
 ]
 
 ACCEPT_LANGUAGES = [
@@ -101,7 +99,8 @@ class DeviceProfile:
     created_at: float = field(default_factory=time.time)
 
     def headers_base(self):
-        h = {
+        # ── تم التبسيط: أزلنا كود mobile headers لأننا لن نستخدم mobile endpoint ──
+        return {
             "User-Agent": self.user_agent,
             "Accept": "*/*",
             "Accept-Language": self.accept_language,
@@ -117,17 +116,6 @@ class DeviceProfile:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
         }
-        if self.endpoint.get("style") == "mobile":
-            h.update(
-                {
-                    "X-IG-Device-ID": self.device_id,
-                    "X-IG-Family-Device-ID": self.family_device_id,
-                    "X-IG-Android-ID": self.android_id,
-                    "X-IG-Connection-Type": random.choice(["WIFI", "MOBILE.LTE"]),
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                }
-            )
-        return h
 
 
 class DeviceForge:
