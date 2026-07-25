@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Camoro API rotator + device fingerprint forge.
-   REPAIRED: removed mobile_i_login endpoint that always failed
-            because swarm sends web payload (enc_password) to mobile API.
+
+   v1.0.1 — mobile_i_login removed: swarm always sends web payload
+            so mobile endpoint never worked (always bad_api).
 """
 
 import hashlib
@@ -12,11 +13,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-# ── تم الحذف: mobile_i_login ──
-# المشكلة: swarm.py يرسل دائماً enc_password (صيغة ويب)
-#          لكن mobile_i_login يتوقع password عادي + device_id
-#          النتيجة: فشل دائم bad_api
-# الحل: 4 endpoints ويب فقط — كلهم يتعاملون مع enc_password
+# ═══════════════════════════════════════════════════════════
+#  4 web endpoints only — كلهم يتعاملون مع enc_password
+#  mobile_i_login محذوف لأنه يتوقع payload مختلف تماماً
+# ═══════════════════════════════════════════════════════════
 LOGIN_ENDPOINTS = [
     {
         "name": "web_ajax_www",
@@ -99,7 +99,6 @@ class DeviceProfile:
     created_at: float = field(default_factory=time.time)
 
     def headers_base(self):
-        # ── تم التبسيط: أزلنا كود mobile headers لأننا لن نستخدم mobile endpoint ──
         return {
             "User-Agent": self.user_agent,
             "Accept": "*/*",
