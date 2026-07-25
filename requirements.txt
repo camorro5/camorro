@@ -1,3 +1,0 @@
-instaloader>=4.15
-requests>=2.28.0
-curl_cffi>=0.6.0
