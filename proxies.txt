@@ -1,3 +1,0 @@
-# One proxy per line. Examples:
-# http://user:pass@1.2.3.4:8080
-# socks5://127.0.0.1:9050
