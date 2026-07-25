@@ -47,16 +47,16 @@ class CamoroOSINT:
         try:
             return self.session.get(url, timeout=25, **kwargs)
         except requests.RequestException as exc:
-            error(f"Request failed: {exc}")
+            error("Request failed: {0}".format(exc))
             return None
 
     def scrape(self):
-        info(f"Collecting OSINT on @{self.username} ...")
+        info("Collecting OSINT on @{0} ...".format(self.username))
         data = self._scrape_web_profile()
         if not data:
             data = self._scrape_og_fallback()
         if not data:
-            error(f"Username @{self.username} not found or blocked")
+            error("Username @{0} not found or blocked".format(self.username))
             return {}
         self.profile_data = data
         self._print_profile()
@@ -65,17 +65,21 @@ class CamoroOSINT:
 
     def _scrape_web_profile(self):
         endpoints = [
-            f"https://www.instagram.com/api/v1/users/web_profile_info/?username={self.username}",
-            f"https://i.instagram.com/api/v1/users/web_profile_info/?username={self.username}",
+            "https://www.instagram.com/api/v1/users/web_profile_info/?username={0}".format(
+                self.username
+            ),
+            "https://i.instagram.com/api/v1/users/web_profile_info/?username={0}".format(
+                self.username
+            ),
         ]
         headers_api = {
             "User-Agent": random.choice(USER_AGENTS),
             "X-IG-App-ID": "936619743392459",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://www.instagram.com/{self.username}/",
+            "Referer": "https://www.instagram.com/{0}/".format(self.username),
             "Accept": "*/*",
         }
-        self._get(f"https://www.instagram.com/{self.username}/")
+        self._get("https://www.instagram.com/{0}/".format(self.username))
         time.sleep(1)
         for url in endpoints:
             try:
@@ -94,7 +98,7 @@ class CamoroOSINT:
         return {}
 
     def _scrape_og_fallback(self):
-        r = self._get(f"https://www.instagram.com/{self.username}/")
+        r = self._get("https://www.instagram.com/{0}/".format(self.username))
         if r is None or r.status_code != 200:
             return {}
         html = r.text
@@ -103,29 +107,34 @@ class CamoroOSINT:
 
         def meta(prop=None, name=None):
             if prop:
-                m = re.search(
-                    rf'<meta[^>]+property=["\']{re.escape(prop)}["\'][^>]+content=["\']([^"\']*)["\']',
-                    html,
-                    re.I,
+                pattern1 = (
+                    r'<meta[^>]+property=["\']'
+                    + re.escape(prop)
+                    + r'["\'][^>]+content=["\']([^"\']*)["\']'
                 )
+                pattern2 = (
+                    r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+property=["\']'
+                    + re.escape(prop)
+                    + r'["\']'
+                )
+                m = re.search(pattern1, html, re.I)
                 if not m:
-                    m = re.search(
-                        rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]+property=["\']{re.escape(prop)}["\']',
-                        html,
-                        re.I,
-                    )
+                    m = re.search(pattern2, html, re.I)
             else:
-                m = re.search(
-                    rf'<meta[^>]+name=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']*)["\']',
-                    html,
-                    re.I,
+                pattern = (
+                    r'<meta[^>]+name=["\']'
+                    + re.escape(name)
+                    + r'["\'][^>]+content=["\']([^"\']*)["\']'
                 )
+                m = re.search(pattern, html, re.I)
             return m.group(1) if m else ""
 
         desc = meta(prop="og:description") or meta(name="description")
         title = meta(prop="og:title")
         image = meta(prop="og:image")
-        url = meta(prop="og:url") or f"https://www.instagram.com/{self.username}/"
+        url = meta(prop="og:url") or "https://www.instagram.com/{0}/".format(
+            self.username
+        )
 
         followers = following = posts = "?"
         m = re.search(
@@ -197,16 +206,22 @@ class CamoroOSINT:
             "business_category": str(user.get("business_category_name") or ""),
             "connected_fb": str(user.get("connected_fb_page") or ""),
             "joined_recently": str(user.get("is_joined_recently", False)),
-            "profile_url": f"https://www.instagram.com/{user.get('username', self.username)}/",
+            "profile_url": "https://www.instagram.com/{0}/".format(
+                user.get("username", self.username)
+            ),
             "user_id": str(user.get("id") or user.get("pk") or ""),
             "scraped_at": datetime.utcnow().isoformat() + "Z",
         }
 
     def _print_profile(self):
         d = self.profile_data
-        print(f"\n{Colors.HEADER}{'─' * 48}{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}  Results · scan for @{d.get('username')}{Colors.ENDC}")
-        print(f"{Colors.HEADER}{'─' * 48}{Colors.ENDC}")
+        print("\n{0}{1}{2}".format(Colors.HEADER, "─" * 48, Colors.ENDC))
+        print(
+            "{0}  Results · scan for @{1}{2}".format(
+                Colors.OKGREEN, d.get("username"), Colors.ENDC
+            )
+        )
+        print("{0}{1}{2}".format(Colors.HEADER, "─" * 48, Colors.ENDC))
         labels = [
             ("Username", "username"),
             ("Full Name", "full_name"),
@@ -229,24 +244,21 @@ class CamoroOSINT:
             val = d.get(key, "")
             if val in ("", "None", "null"):
                 val = "-"
-            print(f"  {Colors.BOLD}{label:20}{Colors.ENDC}: {val}")
-        print(f"{Colors.HEADER}{'─' * 48}{Colors.ENDC}\n")
+            print(
+                "  {0}{1:20}{2}: {3}".format(Colors.BOLD, label, Colors.ENDC, val)
+            )
+        print("{0}{1}{2}\n".format(Colors.HEADER, "─" * 48, Colors.ENDC))
 
     def _save(self):
+        # ── إصلاح: مجلد واحد ثابت — بدون username_1, username_2... ──
         base = os.path.join(self.output_dir, self.username)
         os.makedirs(base, exist_ok=True)
-        if os.path.exists(os.path.join(base, "osint.json")):
-            i = 1
-            while os.path.exists(os.path.join("%s_%d" % (base, i), "osint.json")):
-                i += 1
-            base = "%s_%d" % (base, i)
-            os.makedirs(base, exist_ok=True)
-
         self.profile_dir = base
+
         path = os.path.join(base, "osint.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.profile_data, f, ensure_ascii=False, indent=2)
-        success(f"OSINT saved → {path}")
+        success("OSINT saved → {0}".format(path))
 
         pic = self.profile_data.get("profile_pic_url") or ""
         if pic.startswith("http"):
@@ -256,7 +268,7 @@ class CamoroOSINT:
                     pp = os.path.join(base, "profile_pic.jpg")
                     with open(pp, "wb") as f:
                         f.write(r.content)
-                    ok(f"Profile picture saved → {pp}")
+                    ok("Profile picture saved → {0}".format(pp))
             except Exception:
                 warn("Could not download profile picture")
 
@@ -264,8 +276,10 @@ class CamoroOSINT:
         d = self.profile_data or {}
         bio = d.get("biography") or ""
         name = d.get("full_name") or ""
-        parts = re.findall(r"[A-Za-z\u0600-\u06FF]{2,}", "%s %s" % (name, bio))
-        years = re.findall(r"(?:19|20)\d{2}", "%s %s" % (name, bio))
+        parts = re.findall(
+            r"[A-Za-z\u0600-\u06FF]{2,}", "{0} {1}".format(name, bio)
+        )
+        years = re.findall(r"(?:19|20)\d{2}", "{0} {1}".format(name, bio))
         phones = re.findall(r"\+?\d{8,15}", bio)
         return {
             "username": d.get("username") or self.username,
