@@ -13,7 +13,7 @@ setup(
     description="Advanced Web Application Penetration Testing Framework - SQLi, XSS, LFI, RCE, CSRF, PrivEsc, Buffer Overflow",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/your-username/VenomScan",
+    url="https://github.com/camorro5/camorro.git",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
