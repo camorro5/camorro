@@ -11,7 +11,7 @@ Capabilities:
   • Multi-threaded validation (speed/connectivity/anonymity test)
   • Smart filtering by country, anonymity level, SSL support
   • Auto-scoring: ranks proxies by latency + reliability
-  • Export to proxychains format, JSON, CSV
+  • Export to proxychains format, JSON
   • Rotating proxy pool with automatic refresh
 """
 
@@ -28,7 +28,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 
-# ─── Constants ───────────────────────────────────────────────
 SPYS_HTTP_URL  = "https://spys.me/proxy.txt"
 SPYS_SOCKS_URL = "https://spys.me/socks.txt"
 USER_AGENT     = "Mozilla/5.0 (compatible; GhostMedia/2.0; ProxyHarvester)"
@@ -91,8 +90,6 @@ class ProxyHarvester:
         self._lock = threading.Lock()
         self._rotation_index = 0
 
-    # ─── FETCH ────────────────────────────────────────────
-
     def fetch_http(self) -> List[ProxyEntry]:
         """Fetch HTTP/HTTPS proxies from spys.me/proxy.txt."""
         proxies = []
@@ -149,8 +146,6 @@ class ProxyHarvester:
         with self._lock:
             self.proxies = all_proxies
         return all_proxies
-
-    # ─── PARSING ─────────────────────────────────────────
 
     def _parse_http_line(self, line: str) -> Optional[ProxyEntry]:
         """Parse HTTP proxy line. Format: IP:PORT CC-Anonymity(-S)?(!)? (+/-)?"""
@@ -213,8 +208,6 @@ class ProxyHarvester:
             return "ANM"
         return "NOA"
 
-    # ─── VALIDATION ──────────────────────────────────────
-
     def validate_proxy(self, proxy: ProxyEntry) -> ProxyEntry:
         """Test a single proxy for TCP connectivity."""
         start = time.time()
@@ -222,7 +215,6 @@ class ProxyHarvester:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
             sock.connect((proxy.ip, proxy.port))
-            # Send a simple HTTP request to confirm it responds
             sock.send(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
             sock.recv(1024)
             sock.close()
@@ -294,8 +286,6 @@ class ProxyHarvester:
 
         return min(score, 100.0)
 
-    # ─── FILTERING ───────────────────────────────────────
-
     def filter(self, countries: List[str] = None,
                min_anonymity: str = None,
                ssl_only: bool = False,
@@ -330,8 +320,6 @@ class ProxyHarvester:
 
         return results
 
-    # ─── ROTATION ────────────────────────────────────────
-
     def next_proxy(self) -> Optional[ProxyEntry]:
         """Get next proxy from rotation pool (round-robin)."""
         with self._lock:
@@ -354,8 +342,6 @@ class ProxyHarvester:
             if not self.validated:
                 return None
             return self.validated[0]
-
-    # ─── EXPORT ─────────────────────────────────────────
 
     def export_proxychains(self, output_path: str = "proxychains_proxies.txt") -> str:
         """Export validated proxies in proxychains format."""
