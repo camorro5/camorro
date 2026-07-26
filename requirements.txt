@@ -1,4 +1,28 @@
-requests>=2.28.0
-buildozer>=1.5.0
-cython>=0.29.33
-colorama>=0.4.6
+# ═══════════════════════════════════════════════
+#  SMS Security Audit - المتطلبات
+#  التثبيت: pkg install $(cat requirements.txt | grep -v '^#' | grep -v '^$')
+# ═══════════════════════════════════════════════
+
+# ── Termux Packages ──────────────────────────
+openjdk-17
+aapt
+apksigner
+dx
+ecj
+wget
+
+# ── Android SDK (يُحمل تلقائياً عبر build.sh) ──
+# android.jar - API Level 30 (Android 11)
+# الرابط: https://github.com/Sable/android-platforms/raw/master/android-30/android.jar
+
+# ── نظام التشغيل ──────────────────────────────
+# Termux من F-Droid (ليس متجر Play)
+# Android 6.0+
+
+# ── Telegram ──────────────────────────────────
+# Bot Token   : من @BotFather
+# Chat ID     : من getUpdates API
+
+# ── تثبيت سريع ───────────────────────────────
+# pkg update -y && pkg upgrade -y
+# pkg install openjdk-17 aapt apksigner dx ecj wget -y
