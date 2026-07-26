@@ -403,9 +403,7 @@ class WordlistAI:
     def _finalize(self, tokens, years, numbers):
         final = [p for p in self.passwords if 4 <= len(p) <= 64]
         u = (self._g("username") or "").lower()
-        name_parts = [
-            p.lower() for p in self._split(self._g("full_name") or "")
-        ]
+        name_parts = [p.lower() for p in self._split(self._g("full_name") or "")]
         nick = (self._g("nickname") or "").lower()
         city = (self._g("city") or "").lower()
 
