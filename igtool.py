@@ -36,12 +36,15 @@ def count_lines(path):
 
 
 def merge_hints_into_answers(answers, hints, username):
-    """Ensure OSINT always feeds the wordlist engine."""
     answers = dict(answers or {})
     hints = hints or {}
     answers["username"] = answers.get("username") or username
-    answers["full_name"] = answers.get("full_name") or hints.get("full_name", "")
-    answers["biography"] = hints.get("biography", answers.get("biography", ""))
+    answers["full_name"] = answers.get("full_name") or hints.get(
+        "full_name", ""
+    )
+    answers["biography"] = hints.get(
+        "biography", answers.get("biography", "")
+    )
     answers["bio_tokens"] = hints.get("bio_tokens", [])
     answers["osint_tokens"] = hints.get("bio_tokens", [])
     answers["osint_years"] = hints.get("years", [])
@@ -68,10 +71,14 @@ def build_minimal_answers(username, hints):
 
 
 def run_osint(username, output_dir, proxy):
-    bot = OSINT(username, output_dir, proxy)
+    sid = os.environ.get("IG_SESSIONID") or None
+    bot = OSINT(username, output_dir, proxy, sessionid=sid)
     data = bot.scrape()
-    # Always build hints from bot.data (even partial)
-    hints = bot.get_hints() if getattr(bot, "data", None) else {"username": username}
+    hints = (
+        bot.get_hints()
+        if getattr(bot, "data", None)
+        else {"username": username}
+    )
     if not hints.get("username"):
         hints["username"] = username
     return bot, data, hints
@@ -117,6 +124,13 @@ def main():
     if not proxy_file:
         proxy_file = None
 
+    sid = ask("Instagram sessionid cookie (ENTER skip)", "")
+    if sid:
+        os.environ["IG_SESSIONID"] = sid.strip()
+        ok("sessionid saved for this run")
+    elif os.environ.get("IG_SESSIONID"):
+        info("Using IG_SESSIONID from environment")
+
     info(f"Checking @{username}...")
     api = InstagramAPI(proxy=proxy)
     exists = api.profile_exists(username)
@@ -143,20 +157,18 @@ def main():
 
         wl_path = os.path.join(output_dir, username, "wordlist.txt")
 
-        # ── 1: OSINT ────────────────────────────────
         if choice == 1:
             step(1, 1, "OSINT")
             bot, data, hints = run_osint(username, output_dir, proxy)
             if data:
                 ok(f"Data saved → output/{username}/osint.json")
             else:
-                warn("OSINT limited — interview still improves wordlist")
+                warn("OSINT limited — use interview for better wordlist")
             ask("\nPress ENTER to return")
             clear()
             show_banner()
             continue
 
-        # ── 2: WORDLIST ─────────────────────────────
         if choice == 2:
             step(1, 3, "OSINT")
             bot, data, hints = run_osint(username, output_dir, proxy)
@@ -180,12 +192,13 @@ def main():
             show_banner()
             continue
 
-        # ── 3: BRUTE FORCE ──────────────────────────
         if choice == 3:
             if not os.path.isfile(wl_path):
                 warn("No wordlist found")
                 if yesno("Generate targeted wordlist now?"):
-                    bot, data, hints = run_osint(username, output_dir, proxy)
+                    bot, data, hints = run_osint(
+                        username, output_dir, proxy
+                    )
                     if yesno("Run interview?"):
                         answers = Interviewer(
                             username, hints, output_dir
@@ -242,7 +255,6 @@ def main():
             show_banner()
             continue
 
-        # ── 4: FULL ATTACK ──────────────────────────
         if choice == 4:
             step(1, 4, "OSINT")
             bot, data, hints = run_osint(username, output_dir, proxy)
@@ -301,7 +313,6 @@ def main():
             show_banner()
             continue
 
-        # ── 5: RESUME ───────────────────────────────
         if choice == 5:
             progress = os.path.join(
                 output_dir, username, "progress.json"
@@ -332,7 +343,6 @@ def main():
             show_banner()
             continue
 
-        # ── 6: PROXY CHECK ──────────────────────────
         if choice == 6:
             from core.proxy import ProxyManager
 
@@ -354,7 +364,6 @@ def main():
             show_banner()
             continue
 
-        # ── 7: EXIT ─────────────────────────────────
         if choice == 7:
             print(f"\n{C.C}  Goodbye!{C.E}\n")
             sys.exit(0)
