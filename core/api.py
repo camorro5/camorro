@@ -32,21 +32,13 @@ class InstagramAPI:
 
     def _warm(self):
         try:
-            r = self.session.get(
-                "https://www.instagram.com/",
-                timeout=20,
-                allow_redirects=True,
-            )
+            r = self.session.get("https://www.instagram.com/", timeout=20, allow_redirects=True)
             csrf = self.session.cookies.get("csrftoken") or ""
             if not csrf:
-                m = re.search(
-                    r'"csrf_token"\s*:\s*"([^"]+)"', r.text or ""
-                )
+                m = re.search(r'"csrf_token"\s*:\s*"([^"]+)"', r.text or "")
                 if m:
                     csrf = m.group(1)
-                    self.session.cookies.set(
-                        "csrftoken", csrf, domain=".instagram.com"
-                    )
+                    self.session.cookies.set("csrftoken", csrf, domain=".instagram.com")
             if csrf:
                 self.session.headers["X-CSRFToken"] = csrf
             time.sleep(random.uniform(0.3, 0.8))
@@ -57,11 +49,7 @@ class InstagramAPI:
         username = username.strip().lstrip("@")
         self._rotate_identity()
         try:
-            r = self.session.get(
-                f"https://www.instagram.com/{username}/",
-                timeout=20,
-                allow_redirects=True,
-            )
+            r = self.session.get(f"https://www.instagram.com/{username}/", timeout=20, allow_redirects=True)
             if r.status_code == 404:
                 return False
             if r.status_code == 200:
@@ -82,13 +70,9 @@ class InstagramAPI:
             self._warm()
             csrf = self.session.cookies.get("csrftoken") or ""
             self.session.headers["X-CSRFToken"] = csrf
-            self.session.headers["Content-Type"] = (
-                "application/x-www-form-urlencoded"
-            )
+            self.session.headers["Content-Type"] = "application/x-www-form-urlencoded"
             self.session.headers["X-Requested-With"] = "XMLHttpRequest"
-            self.session.headers["Referer"] = (
-                "https://www.instagram.com/accounts/login/"
-            )
+            self.session.headers["Referer"] = "https://www.instagram.com/accounts/login/"
             ts = int(time.time())
             data = {
                 "username": username,
@@ -97,71 +81,27 @@ class InstagramAPI:
                 "optIntoOneTap": "false",
                 "trustedDeviceRecords": "{}",
             }
-            r = self.session.post(
-                "https://www.instagram.com/api/v1/web/accounts/login/ajax/",
-                data=data,
-                timeout=25,
-            )
+            r = self.session.post("https://www.instagram.com/api/v1/web/accounts/login/ajax/", data=data, timeout=25)
             try:
                 j = r.json()
             except Exception:
                 j = {}
-
             if j.get("authenticated") is True:
                 return {"success": True, "status": "ok", "raw": j}
-
             if j.get("user") is False:
-                return {
-                    "success": False,
-                    "status": "invalid_user",
-                    "raw": j,
-                }
-
+                return {"success": False, "status": "invalid_user", "raw": j}
             msg = (j.get("message") or "").lower()
-            if (
-                "checkpoint" in msg
-                or j.get("checkpoint_url")
-                or j.get("two_factor_required")
-            ):
-                return {
-                    "success": False,
-                    "status": "checkpoint",
-                    "raw": j,
-                }
-
+            if "checkpoint" in msg or j.get("checkpoint_url") or j.get("two_factor_required"):
+                return {"success": False, "status": "checkpoint", "raw": j}
             if r.status_code == 429 or "wait" in msg or "rate" in msg:
-                return {
-                    "success": False,
-                    "status": "rate_limited",
-                    "raw": j,
-                }
-
+                return {"success": False, "status": "rate_limited", "raw": j}
             if j.get("authenticated") is False:
-                return {
-                    "success": False,
-                    "status": "bad_password",
-                    "raw": j,
-                }
-
+                return {"success": False, "status": "bad_password", "raw": j}
             if j.get("status") == "fail":
                 if "password" in msg or r.status_code == 400:
-                    return {
-                        "success": False,
-                        "status": "bad_password",
-                        "raw": j,
-                    }
-                return {
-                    "success": False,
-                    "status": "error",
-                    "raw": j,
-                }
-
-            return {
-                "success": False,
-                "status": "bad_password",
-                "raw": j,
-            }
-
+                    return {"success": False, "status": "bad_password", "raw": j}
+                return {"success": False, "status": "error", "raw": j}
+            return {"success": False, "status": "bad_password", "raw": j}
         except requests.exceptions.Timeout:
             return {"success": False, "status": "timeout"}
         except requests.exceptions.ProxyError:
@@ -169,8 +109,4 @@ class InstagramAPI:
         except requests.exceptions.ConnectionError:
             return {"success": False, "status": "connection_error"}
         except Exception as e:
-            return {
-                "success": False,
-                "status": "error",
-                "error": str(e),
-            }
+            return {"success": False, "status": "error", "error": str(e)}
