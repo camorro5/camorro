@@ -1,125 +1,89 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-AI Healer — auto-detects problems and fixes them.
-"""
-import time, random
-from ..banner import ai, info, ok, warn, err
+"""AI Healer — auto-fixes errors, replaces dead proxies, adjusts delays."""
+import time
+import random
 
-class AIHealer:
-    def __init__(self, memory):
+try:
+    from ..banner import info, ok, warn, err, ai
+except ImportError:
+    def info(m): print(f"[*] {m}")
+    def ok(m):   print(f"[+] {m}")
+    def warn(m): print(f"[!] {m}")
+    def err(m):  print(f"[-] {m}")
+    def ai(m):   print(f"[AI] {m}")
+
+
+class Healer:
+    def __init__(self, brain=None, memory=None):
+        self.brain = brain
         self.memory = memory
-        self._heal_count = 0
+        self.heals_performed = 0
+        self.last_heal_time = 0
+        self.heal_cooldown = 5
 
-    def diagnose(self, error_status, context=""):
-        """Analyze error and return healing action."""
-        action = {"type": "none", "reason": ""}
+    def heal(self, brute_instance):
+        """
+        Auto-fix based on current state.
+        - Proxy dead → replace
+        - Rate limited → wait + rotate
+        - Too fast → increase delay
+        """
+        now = time.time()
+        if now - self.last_heal_time < self.heal_cooldown:
+            return {"action": "skip", "reason": "cooldown"}
 
-        if error_status in ("timeout", "connection_error"):
-            action = {
-                "type": "switch_proxy",
-                "reason": f"Connection failed: {error_status}",
-                "suggestions": ["rotate_proxy", "go_direct", "increase_timeout"]
-            }
-        elif error_status == "rate_limited":
-            action = {
-                "type": "backoff",
-                "reason": "Rate limit detected",
-                "suggestions": ["increase_delay", "rotate_identity", "cool_down"],
-                "cooldown": 60 + (self.memory.get_error_count("rate_limit") * 10)
-            }
-        elif error_status == "login_wall":
-            action = {
-                "type": "authenticate",
-                "reason": "Login wall hit",
-                "suggestions": ["use_sessionid", "rotate_fingerprint", "use_mobile_ua"]
-            }
-        elif error_status == "checkpoint":
-            action = {
-                "type": "flag",
-                "reason": "Checkpoint triggered — account locked or suspicious login",
-                "suggestions": ["save_password", "reduce_speed", "change_proxy"]
-            }
-        elif error_status == "empty_data":
-            action = {
-                "type": "switch_method",
-                "reason": "No data returned",
-                "suggestions": ["try_next_endpoint", "rotate_fingerprint", "use_desktop"]
-            }
-        elif error_status == "invalid_user":
-            action = {
-                "type": "stop",
-                "reason": "Username does not exist",
-                "suggestions": ["verify_username", "stop_operation"]
-            }
-        else:
-            action = {
-                "type": "retry",
-                "reason": f"Unknown error: {error_status}",
-                "suggestions": ["retry_once", "log_error"]
-            }
+        self.last_heal_time = now
+        self.heals_performed += 1
 
-        self.memory.record_error(error_status, context, action["reason"])
-        self._heal_count += 1
-        return action
+        cf = brute_instance.consecutive_fails
+        sf = brute_instance.session_fails
+        tested = max(brute_instance.tested, 1)
 
-    def apply_healing(self, action, context_obj=None):
-        """Execute healing action. Returns new parameters."""
-        result = {"healed": False, "new_delay": None, "new_proxy": None, "new_method": None}
+        result = {"action": "none", "reason": "", "rest": 0, "delay_changed": False}
 
-        if action["type"] == "switch_proxy":
-            ai("Healing: switching proxy...")
-            if context_obj and hasattr(context_obj, 'proxy_mgr'):
-                context_obj.proxy_mgr.mark_dead(context_obj.proxy_mgr.get_next())
-                new_proxy = context_obj.proxy_mgr.get_next()
-                if new_proxy: result["new_proxy"] = new_proxy; result["healed"] = True
-                else:
-                    ai("Healing: all proxies dead, going DIRECT")
-                    result["new_proxy"] = None; result["healed"] = True
+        # ═══════════════════════
+        # PROXY DEAD
+        # ═══════════════════════
+        if cf >= 2 and brute_instance.proxy_manager:
+            ai("Healer: Proxy seems dead — forcing rotation...")
+            brute_instance.proxy_manager.refresh_all()
+            result["action"] = "proxy_refreshed"
+            result["reason"] = f"{cf} consecutive fails"
+            time.sleep(random.uniform(2, 4))
+            return result
 
-        elif action["type"] == "backoff":
-            cooldown = action.get("cooldown", 60)
-            ai(f"Healing: backing off {cooldown}s...")
-            time.sleep(min(cooldown, 120))
-            new_delay = self.memory.get_adaptive_delay("brute_min") * 1.5
-            self.memory.update_adaptive_delay("brute_min", new_delay)
-            self.memory.update_adaptive_delay("brute_max", new_delay * 1.5)
-            result["new_delay"] = new_delay; result["healed"] = True
+        # ═══════════════════════
+        # RATE LIMITED
+        # ═══════════════════════
+        if cf >= 5 and tested > 0:
+            wait = random.uniform(30, 90)
+            ai(f"Healer: {cf} fails — force-rest {wait:.0f}s + rotate fingerprint...")
+            brute_instance.consecutive_fails = 0
+            result["action"] = "force_rest"
+            result["reason"] = "Too many fails"
+            result["rest"] = wait
+            result["delay_changed"] = False
+            time.sleep(wait)
+            return result
 
-        elif action["type"] == "switch_method":
-            ai("Healing: switching OSINT method...")
-            result["new_method"] = "next"; result["healed"] = True
+        # ═══════════════════════
+        # INCREASE DELAY
+        # ═══════════════════════
+        if sf > 5 and tested > 10:
+            old_delay = brute_instance.delays[1]
+            new_delay = min(old_delay * 1.5, 20)
+            brute_instance.delays = (brute_instance.delays[0], new_delay)
+            ai(f"Healer: Increased delay {old_delay:.1f}s → {new_delay:.1f}s")
+            result["action"] = "delay_increased"
+            result["reason"] = f"{sf} session fails"
+            result["delay_changed"] = True
+            brute_instance.session_fails = 0
 
-        elif action["type"] == "authenticate":
-            ai("Healing: need authentication — using sessionid if available...")
-            import os
-            sid = os.environ.get("IG_SESSIONID")
-            if sid: result["healed"] = True; ai("sessionid found, will attach")
-            else: warn("No sessionid available — may hit login wall again")
+        # ═══════════════════════
+        # MEMORY RECORD
+        # ═══════════════════════
+        if self.memory:
+            self.memory.record_delay("heal", (brute_instance.delays[1] + brute_instance.delays[0]) / 2)
 
-        elif action["type"] == "flag":
-            ai("Healing: flagging checkpoint — saved for manual review")
-            result["healed"] = True
-
-        elif action["type"] == "retry":
-            ai("Healing: retrying...")
-            result["healed"] = True
-
-        self.memory.add_learning(f"Healed: {action['type']} — {action['reason']}")
         return result
-
-    def suggest_strategy(self, target_stats):
-        """Based on target history, suggest best approach."""
-        if not target_stats: return "standard"
-
-        failures = target_stats.get("failures", 0)
-        successes = target_stats.get("successes", 0)
-        total = target_stats.get("ops", 1)
-
-        if failures > successes * 2 and total > 5:
-            return "cautious"  # Increase delays, use best proxies
-        if successes > 0 and failures == 0:
-            return "aggressive"  # Speed up
-        if total > 20 and failures > 15:
-            return "avoid"  # Target is well-protected, skip or manual
-        return "standard"
