@@ -1,18 +1,12 @@
-# Instagram Security Testing Tool
+# IGTOOL v3
 
-A professional penetration testing tool for authorized Instagram security assessments.
+Authorized Instagram security testing:
+**OSINT → Your Interview Intel → Targeted 18000 dictionary → Brute (live progress)**
 
-## Features
-
-- **OSINT** — Public profile intelligence gathering
-- **AI Wordlist** — Targeted password generation from intel
-- **Brute Force** — Multi-proxy password testing
-- **Proxy Support** — HTTP/HTTPS/SOCKS5 with rotation
-- **Resume** — Checkpoint system for crash recovery
-- **Checkpoint Detection** — Identifies 2FA/checkpoint triggers
-
-## Install
+## Install (Termux / Linux)
 
 ```bash
-chmod +x install.sh
-./install.sh
+cd ~/igtool
+pip install -r requirements.txt
+# or: bash install.sh
+python3 igtool.py
