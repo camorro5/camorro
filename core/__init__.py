@@ -1,1 +1,1 @@
-# IG Security Tool - Core Package
+# igtool core
