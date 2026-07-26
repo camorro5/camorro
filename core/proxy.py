@@ -1,94 +1,94 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Proxy management with validation and rotation."""
+"""Proxy manager."""
 
-import random
+import os
 import time
 import requests
+from .banner import ok
 
 
 class ProxyManager:
-    """Loads, validates, and rotates HTTP/SOCKS proxies."""
-
     def __init__(self, proxy_file=None, proxy_url=None):
-        self._proxies = []
+        self._all = []
         self._alive = []
         self._dead = []
-        self._cursor = 0
-
+        self._idx = 0
         if proxy_url:
-            self._proxies.append(self._normalize(proxy_url))
-        if proxy_file:
-            self._load_file(proxy_file)
-
-    def _normalize(self, url):
-        url = url.strip()
-        if "://" not in url:
-            url = f"http://{url}"
-        return url
-
-    def _load_file(self, path):
-        try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            u = proxy_url.strip()
+            if u:
+                if "://" not in u:
+                    u = "http://" + u
+                self._all.append(u)
+        if proxy_file and os.path.isfile(proxy_file):
+            with open(proxy_file, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("#"):
-                        self._proxies.append(self._normalize(line))
-        except Exception:
-            pass
+                    if not line or line.startswith("#"):
+                        continue
+                    if "://" not in line:
+                        line = "http://" + line
+                    self._all.append(line)
+        self._all = list(dict.fromkeys(self._all))
 
     @property
     def count(self):
-        return len(self._proxies)
+        return len(self._all)
 
     @property
     def alive_count(self):
         return len(self._alive)
 
-    def validate_all(self, test_url="https://www.instagram.com", timeout=8):
-        """Test all proxies, categorize as alive/dead."""
-        self._alive.clear()
-        self._dead.clear()
-
-        for p in self._proxies:
-            proxies = {"http": p, "https": p}
-            try:
-                start = time.time()
-                r = requests.get(test_url, proxies=proxies, timeout=timeout)
-                latency = time.time() - start
-                if r.status_code < 500:
-                    self._alive.append({"url": p, "latency": latency})
-                else:
-                    self._dead.append(p)
-            except Exception:
-                self._dead.append(p)
-
-        return len(self._alive)
-
     def get_next(self):
-        """Returns next proxy in rotation."""
-        if not self._alive:
-            if not self._proxies:
-                return None
-            self._alive = [{"url": p, "latency": 999} for p in self._proxies]
+        pool = self._alive if self._alive else [{"url": u} for u in self._all]
+        if not pool:
+            return None
+        item = pool[self._idx % len(pool)]
+        self._idx += 1
+        return item["url"] if isinstance(item, dict) else item
 
-        self._cursor = (self._cursor + 1) % len(self._alive)
-        return self._alive[self._cursor]["url"]
-
-    def get_random(self):
-        """Returns a random alive proxy."""
-        if not self._alive:
-            if not self._proxies:
-                return None
-            return random.choice(self._proxies)
-        return random.choice(self._alive)["url"]
+    def get_proxies_dict(self, url=None):
+        u = url or self.get_next()
+        if not u:
+            return None
+        return {"http": u, "https": u}
 
     def mark_dead(self, url):
-        """Remove a dead proxy from rotation."""
-        self._alive = [p for p in self._alive if p["url"] != url]
-        if url in self._proxies:
-            self._proxies.remove(url)
+        if not url:
+            return
+        self._dead.append(url)
+        self._alive = [p for p in self._alive if p.get("url") != url]
+        if url in self._all:
+            try:
+                self._all.remove(url)
+            except ValueError:
+                pass
 
-    def get_proxies_dict(self, url):
-        """Returns proxy dict for requests library."""
-        return {"http": url, "https": url} if url else {}
+    def validate_all(self, timeout=8):
+        self._alive = []
+        self._dead = []
+        for url in list(self._all):
+            t0 = time.time()
+            try:
+                r = requests.get(
+                    "https://www.instagram.com/",
+                    proxies={"http": url, "https": url},
+                    timeout=timeout,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Linux; Android 13) "
+                            "Chrome/122.0.0.0 Mobile Safari/537.36"
+                        )
+                    },
+                    allow_redirects=True,
+                )
+                if r.status_code < 500:
+                    self._alive.append(
+                        {"url": url, "latency": time.time() - t0}
+                    )
+                else:
+                    self._dead.append(url)
+            except Exception:
+                self._dead.append(url)
+        ok(f"Proxies: {len(self._alive)} alive / {len(self._all)} total")
+        return len(self._alive)
