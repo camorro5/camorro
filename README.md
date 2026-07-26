@@ -1,12 +1,17 @@
-# IGTOOL v3
+# IGTOOL
 
-Authorized Instagram security testing:
-**OSINT → Your Interview Intel → Targeted 18000 dictionary → Brute (live progress)**
+Authorized Instagram security assessment toolkit.
 
-## Install (Termux / Linux)
+**OSINT → Interview Intel → Targeted Dictionary (18k) → Brute (live progress + auto proxy failover)**
+
+Use only on accounts you own or are explicitly authorized to test.
+
+## Install
+
+### Linux / WSL
 
 ```bash
-cd ~/igtool
+git clone https://github.com/YOUR_USER/YOUR_REPO.git
+cd YOUR_REPO
 pip install -r requirements.txt
-# or: bash install.sh
 python3 igtool.py
