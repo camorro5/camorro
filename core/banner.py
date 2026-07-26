@@ -26,8 +26,8 @@ def clear():
 def show_banner():
     print(f"""{C.C}
 ╔══════════════════════════════════════════════════╗
-║              IGTOOL  v3  —  FULL                 ║
-║   Intel → Dictionary → Brute (live progress)     ║
+║           IGTOOL  —  Security Suite              ║
+║     OSINT · Dictionary · Brute (live progress)   ║
 ╚══════════════════════════════════════════════════╝{C.E}
 """)
 
