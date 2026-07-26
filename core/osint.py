@@ -16,7 +16,9 @@ from .session import Session
 class OSINT:
     APP_ID = "936619743392459"
 
-    def __init__(self, username, output_dir="output", proxy=None, sessionid=None):
+    def __init__(
+        self, username, output_dir="output", proxy=None, sessionid=None
+    ):
         self.username = username.strip().lstrip("@")
         self.output_dir = output_dir
         self.proxy_url = proxy
@@ -32,7 +34,9 @@ class OSINT:
     def _apply_proxy(self, proxy):
         self.proxy_url = proxy
         if proxy:
-            self.session.proxies.update({"http": proxy, "https": proxy})
+            self.session.proxies.update(
+                {"http": proxy, "https": proxy}
+            )
         else:
             self.session.proxies.clear()
 
@@ -74,7 +78,9 @@ class OSINT:
         self._warm()
         if self.sessionid:
             self.session.cookies.set(
-                "sessionid", self.sessionid, domain=".instagram.com"
+                "sessionid",
+                self.sessionid,
+                domain=".instagram.com",
             )
             info("sessionid attached")
 
@@ -87,12 +93,15 @@ class OSINT:
         for name, fn in methods:
             try:
                 time.sleep(random.uniform(0.5, 1.5))
-                self._apply_fp(mobile=random.choice([True, True, False]))
+                self._apply_fp(
+                    mobile=random.choice([True, True, False])
+                )
                 info(f"Trying: {name}")
                 if fn() and self._is_real():
                     self._save()
                     ok(
-                        f"OSINT OK — @{self.data.get('username', self.username)}"
+                        f"OSINT OK — "
+                        f"@{self.data.get('username', self.username)}"
                     )
                     self.print_summary()
                     return self.data
@@ -126,11 +135,16 @@ class OSINT:
             )
             csrf = self.session.cookies.get("csrftoken") or ""
             if not csrf:
-                m = re.search(r'"csrf_token"\s*:\s*"([^"]+)"', r.text or "")
+                m = re.search(
+                    r'"csrf_token"\s*:\s*"([^"]+)"',
+                    r.text or "",
+                )
                 if m:
                     csrf = m.group(1)
                     self.session.cookies.set(
-                        "csrftoken", csrf, domain=".instagram.com"
+                        "csrftoken",
+                        csrf,
+                        domain=".instagram.com",
                     )
             if csrf:
                 self.session.headers["X-CSRFToken"] = csrf
@@ -152,12 +166,16 @@ class OSINT:
 
     def _via_web_profile_info(self):
         url = (
-            "https://www.instagram.com/api/v1/users/web_profile_info/"
-            f"?username={self.username}"
+            "https://www.instagram.com/api/v1/"
+            f"users/web_profile_info/?username={self.username}"
         )
-        h = Session.build_headers(self.username, mobile=True, for_api=True)
+        h = Session.build_headers(
+            self.username, mobile=True, for_api=True
+        )
         h["X-IG-App-ID"] = self.APP_ID
-        h["X-CSRFToken"] = self.session.cookies.get("csrftoken") or ""
+        h["X-CSRFToken"] = (
+            self.session.cookies.get("csrftoken") or ""
+        )
         r = self.session.get(url, headers=h, timeout=25)
         if r.status_code == 404:
             self.fail_reason = "account not found (404)"
@@ -166,7 +184,9 @@ class OSINT:
             self.fail_reason = f"login wall HTTP {r.status_code}"
             return False
         if r.status_code != 200:
-            self.fail_reason = f"web_profile_info HTTP {r.status_code}"
+            self.fail_reason = (
+                f"web_profile_info HTTP {r.status_code}"
+            )
             return False
         try:
             user = (r.json().get("data") or {}).get("user") or {}
@@ -180,8 +200,8 @@ class OSINT:
 
     def _via_i_api(self):
         url = (
-            "https://i.instagram.com/api/v1/users/web_profile_info/"
-            f"?username={self.username}"
+            "https://i.instagram.com/api/v1/"
+            f"users/web_profile_info/?username={self.username}"
         )
         h = {
             "User-Agent": Session.ig_app_ua(),
@@ -205,7 +225,9 @@ class OSINT:
 
     def _via_html(self):
         url = f"https://www.instagram.com/{self.username}/"
-        h = Session.build_headers(self.username, mobile=True, for_api=False)
+        h = Session.build_headers(
+            self.username, mobile=True, for_api=False
+        )
         r = self.session.get(url, headers=h, timeout=25)
         if r.status_code == 404:
             self.fail_reason = "account not found (404)"
@@ -269,7 +291,9 @@ class OSINT:
 
     def _via_og_reload(self):
         url = f"https://www.instagram.com/{self.username}/"
-        h = Session.build_headers(self.username, mobile=False, for_api=False)
+        h = Session.build_headers(
+            self.username, mobile=False, for_api=False
+        )
         r = self.session.get(url, headers=h, timeout=25)
         if r.status_code != 200:
             return False
@@ -286,23 +310,38 @@ class OSINT:
                 return 0
 
         self.data = {
-            "id": str(user.get("id") or user.get("pk") or ""),
+            "id": str(
+                user.get("id") or user.get("pk") or ""
+            ),
             "username": user.get("username") or self.username,
             "full_name": user.get("full_name") or "",
-            "biography": user.get("biography") or user.get("bio") or "",
+            "biography": (
+                user.get("biography") or user.get("bio") or ""
+            ),
             "external_url": user.get("external_url") or "",
             "is_private": bool(user.get("is_private", False)),
-            "is_verified": bool(user.get("is_verified", False)),
+            "is_verified": bool(
+                user.get("is_verified", False)
+            ),
             "is_business": bool(
                 user.get("is_business_account")
                 or user.get("is_business")
                 or False
             ),
-            "business_category": user.get("business_category_name") or "",
+            "business_category": (
+                user.get("business_category_name") or ""
+            ),
             "category": user.get("category_name") or "",
-            "followers": cnt("edge_followed_by", "follower_count"),
-            "following": cnt("edge_follow", "following_count"),
-            "posts": cnt("edge_owner_to_timeline_media", "media_count"),
+            "followers": cnt(
+                "edge_followed_by", "follower_count"
+            ),
+            "following": cnt(
+                "edge_follow", "following_count"
+            ),
+            "posts": cnt(
+                "edge_owner_to_timeline_media",
+                "media_count",
+            ),
             "profile_pic": (
                 user.get("profile_pic_url_hd")
                 or user.get("profile_pic_url")
@@ -320,19 +359,26 @@ class OSINT:
             end = min(len(html), m.end() + 20000)
             chunk = html[start:end]
             data = {
-                "id": _rx(chunk, r'"id"\s*:\s*"(\d+)"'),
+                "id": _rx(
+                    chunk, r'"id"\s*:\s*"(\d+)"'
+                ),
                 "username": self.username,
                 "full_name": _jstr(
-                    chunk, r'"full_name"\s*:\s*"((?:\\.|[^"\\])*)"'
+                    chunk,
+                    r'"full_name"\s*:\s*"((?:\\.|[^"\\])*)"',
                 ),
                 "biography": _jstr(
-                    chunk, r'"biography"\s*:\s*"((?:\\.|[^"\\])*)"'
+                    chunk,
+                    r'"biography"\s*:\s*"((?:\\.|[^"\\])*)"',
                 ),
                 "external_url": _jstr(
-                    chunk, r'"external_url"\s*:\s*"((?:\\.|[^"\\])*)"'
+                    chunk,
+                    r'"external_url"\s*:\s*"((?:\\.|[^"\\])*)"',
                 ),
-                "is_private": '"is_private":true' in chunk.replace(" ", ""),
-                "is_verified": '"is_verified":true' in chunk.replace(" ", ""),
+                "is_private": '"is_private":true'
+                in chunk.replace(" ", ""),
+                "is_verified": '"is_verified":true'
+                in chunk.replace(" ", ""),
                 "is_business": False,
                 "business_category": "",
                 "category": "",
@@ -359,18 +405,25 @@ class OSINT:
         return False
 
     def _parse_og(self, html):
-        desc = _meta(html, "og:description") or _meta(html, "description")
+        desc = _meta(html, "og:description") or _meta(
+            html, "description"
+        )
         title = _meta(html, "og:title") or ""
         followers = following = posts = 0
         full_name = ""
         priv = False
 
         if desc:
+
             def pnum(label):
                 m = re.search(
-                    rf"([\d.,]+)\s*([KkMm])?\s*{label}", desc, re.I
+                    rf"([\d.,]+)\s*([KkMm])?\s*{label}",
+                    desc,
+                    re.I,
                 )
-                return _num(m.group(1), m.group(2)) if m else 0
+                return (
+                    _num(m.group(1), m.group(2)) if m else 0
+                )
 
             followers = pnum("Followers")
             following = pnum("Following")
@@ -387,7 +440,9 @@ class OSINT:
                 full_name = m.group(1).strip()
 
         if not full_name:
-            m = re.search(r"<title>([^<]+)</title>", html, re.I)
+            m = re.search(
+                r"<title>([^<]+)</title>", html, re.I
+            )
             if m:
                 m2 = re.search(r"^(.+?)\s*\(@", m.group(1))
                 if m2:
@@ -424,7 +479,11 @@ class OSINT:
 
     def _is_real(self):
         d = self.data or {}
-        if d.get("full_name") or d.get("biography") or d.get("id"):
+        if (
+            d.get("full_name")
+            or d.get("biography")
+            or d.get("id")
+        ):
             return True
         if int(d.get("followers") or 0) > 0:
             return True
@@ -438,9 +497,13 @@ class OSINT:
         path = os.path.join(self.output_dir, self.username)
         os.makedirs(path, exist_ok=True)
         with open(
-            os.path.join(path, "osint.json"), "w", encoding="utf-8"
+            os.path.join(path, "osint.json"),
+            "w",
+            encoding="utf-8",
         ) as f:
-            json.dump(self.data, f, indent=2, ensure_ascii=False)
+            json.dump(
+                self.data, f, indent=2, ensure_ascii=False
+            )
 
     def _save_empty(self):
         self.data = {
@@ -459,7 +522,9 @@ class OSINT:
             "posts": 0,
             "profile_pic": "",
             "osint_ok": False,
-            "fail_reason": self.fail_reason or "no public data",
+            "fail_reason": (
+                self.fail_reason or "no public data"
+            ),
         }
         self._save()
 
@@ -473,7 +538,7 @@ class OSINT:
 {C.Y}Public scrape blocked or limited.{C.E}
   1) Proxy = EMPTY (free proxies often DEAD)
   2) Phone VPN then retry
-  3) Paste sessionid when asked
+  3) export IG_SESSIONID='cookie' before run
   4) Menu 2 — fill Interview yourself (best)
 """
         )
@@ -501,17 +566,25 @@ class OSINT:
     def get_hints(self):
         bio = self.data.get("biography") or ""
         name = self.data.get("full_name") or ""
-        uname = self.data.get("username") or self.username
+        uname = (
+            self.data.get("username") or self.username
+        )
         blob = f"{bio} {name}"
         tokens = [
             t
-            for t in re.findall(r"[a-zA-Z\u0600-\u06FF0-9_]+", blob.lower())
+            for t in re.findall(
+                r"[a-zA-Z\u0600-\u06FF0-9_]+", blob.lower()
+            )
             if 2 <= len(t) <= 32
         ]
-        years = re.findall(r"\b(19\d{2}|20[0-2]\d)\b", blob)
+        years = re.findall(
+            r"\b(19\d{2}|20[0-2]\d)\b", blob
+        )
         phones = [
             re.sub(r"[\s\-]+", "", p)
-            for p in re.findall(r"(?:\+?\d[\d\s\-]{6,}\d)", bio)
+            for p in re.findall(
+                r"(?:\+?\d[\d\s\-]{6,}\d)", bio
+            )
         ]
         stats = []
         for n in (
@@ -530,7 +603,11 @@ class OSINT:
                     stats.append(s[-2:])
                 if len(s) >= 4:
                     stats.append(s[-4:])
-        parts = [p for p in re.split(r"[._\-\s]+", uname) if len(p) >= 2]
+        parts = [
+            p
+            for p in re.split(r"[._\-\s]+", uname)
+            if len(p) >= 2
+        ]
         return {
             "username": uname,
             "full_name": name,
@@ -538,8 +615,12 @@ class OSINT:
             "bio_tokens": list(dict.fromkeys(tokens)),
             "years": list(dict.fromkeys(years)),
             "phones": phones,
-            "followers": int(self.data.get("followers") or 0),
-            "following": int(self.data.get("following") or 0),
+            "followers": int(
+                self.data.get("followers") or 0
+            ),
+            "following": int(
+                self.data.get("following") or 0
+            ),
             "posts": int(self.data.get("posts") or 0),
             "user_parts": parts,
             "stat_numbers": list(dict.fromkeys(stats)),
@@ -548,22 +629,30 @@ class OSINT:
                 or self.data.get("business_category")
                 or ""
             ),
-            "external_url": self.data.get("external_url") or "",
-            "is_private": bool(self.data.get("is_private")),
+            "external_url": (
+                self.data.get("external_url") or ""
+            ),
+            "is_private": bool(
+                self.data.get("is_private")
+            ),
             "osint_ok": self._is_real(),
         }
 
 
 def _meta(html, prop):
     m = re.search(
-        rf'<meta[^>]+(?:property|name)=["\']{re.escape(prop)}["\'][^>]+content=["\']([^"\']*)["\']',
+        rf'<meta[^>]+(?:property|name)=["\']'
+        rf'{re.escape(prop)}["\'][^>]+content=["\']'
+        rf'([^"\']*)["\']',
         html,
         re.I,
     )
     if m:
         return _ue(m.group(1))
     m = re.search(
-        rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]+(?:property|name)=["\']{re.escape(prop)}["\']',
+        rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]+'
+        rf'(?:property|name)=["\']'
+        rf'{re.escape(prop)}["\']',
         html,
         re.I,
     )
