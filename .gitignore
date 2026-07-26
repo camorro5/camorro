@@ -1,24 +1,28 @@
-__pycache__/
-*.py[cod]
-*.pyo
-venv/
-.venv/
-env/
-.buildozer/
-bin/
-*.apk
-*.aab
-output/
-loot/
-*.db
-*.zip
+# المفاتيح والتوكنات
 *.keystore
+*.jks
+*.p12
+keystore/
+
+# ملفات البناء
+*.apk
+*.dex
+*.class
+build/
+classes/
+unsigned.apk
+aligned.apk
+
+# Android
+local.properties
+.gradle/
+.idea/
+*.iml
+*.log
+
+# نظام التشغيل
 .DS_Store
 Thumbs.db
-bot_config.py
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.log
+
+# ⚠️ لا ترفع TelegramBot.java إذا فيه توكنات حقيقية
+# TelegramBot.java
