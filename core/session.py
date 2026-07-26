@@ -1,111 +1,103 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Session management & encryption for Instagram login."""
+"""Browser fingerprint rotation."""
 
-import time
-import base64
-import json
-import hmac
-import hashlib
+import random
+import uuid
 
 
 class Session:
-    """Manages Instagram session data and password encryption."""
+    DESKTOP_UA = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    ]
 
-    # Instagram's public key for password encryption (version :0:)
-    # This is the actual key extracted from Instagram web client
-    IG_KEY = bytes([
-        0x13, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
-        0x06, 0x00, 0x00, 0x00, 0xB4, 0x00, 0x00, 0x00,
-        0x1B, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00,
-        0x05, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00,
-    ])
+    MOBILE_UA = [
+        "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 13; Redmi Note 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+    ]
 
-    CSRF_KEY = bytes([
-        0x09, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x1A, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x00, 0x00,
-        0x12, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00,
-    ])
+    IG_APP_UA = [
+        "Instagram 192.0.0.37.107 Android (33/13; 420dpi; 1080x2400; samsung; SM-S918B; dm3q; qcom; en_US; 301484483)",
+        "Instagram 310.0.0.25.109 Android (34/14; 440dpi; 1080x2400; Google; Pixel 8; shiba; shiba; en_US; 543310651)",
+        "Instagram 303.1.0.11.110 Android (33/13; 480dpi; 1080x2340; Xiaomi; 2201116SG; bree; qcom; en_US; 520161702)",
+    ]
 
-    @staticmethod
-    def encrypt_password(password: str) -> str:
-        """
-        Encrypts password in Instagram's #PWD_INSTAGRAM_BROWSER format.
-        Uses version :0: (plaintext with timestamp).
-        """
-        ts = int(time.time())
-        return f"#PWD_INSTAGRAM_BROWSER:0:{ts}:{password}"
+    LANGS = [
+        "en-US,en;q=0.9",
+        "en-GB,en;q=0.9",
+        "en-US,en;q=0.9,ar;q=0.8",
+        "fr-FR,fr;q=0.9,en;q=0.8",
+        "ar-MA,ar;q=0.9,en;q=0.8",
+    ]
 
-    @staticmethod
-    def generate_csrf_token() -> str:
-        """Generates a valid CSRF token."""
-        ts = str(int(time.time()))
-        raw = f"{ts}{hashlib.md5(ts.encode()).hexdigest()[:8]}"
-        return base64.b64encode(raw.encode()).decode()[:32]
+    APP_ID = "936619743392459"
 
-    @staticmethod
-    def generate_device_id() -> str:
-        """Generates a random Android device ID."""
-        import random
-        import string
-        prefix = "android-"
-        rand = ''.join(random.choices(string.hexdigits.lower(), k=16))
-        return f"{prefix}{rand}"
+    @classmethod
+    def random_ua(cls, mobile=True):
+        pool = (cls.MOBILE_UA + cls.DESKTOP_UA) if mobile else cls.DESKTOP_UA
+        return random.choice(pool)
 
-    @staticmethod
-    def generate_phone_id() -> str:
-        """Generates a random phone ID."""
-        import random
-        import uuid
-        return str(uuid.uuid4())
+    @classmethod
+    def ig_app_ua(cls):
+        return random.choice(cls.IG_APP_UA)
 
-    @staticmethod
-    def build_login_payload(username: str, password: str) -> dict:
-        """Builds the complete login POST payload."""
+    @classmethod
+    def new_device_ids(cls):
         return {
-            "username": username,
-            "enc_password": Session.encrypt_password(password),
-            "queryParams": "{}",
-            "optIntoOneTap": "false",
-            "stopDeletionNonce": "",
-            "trustedDeviceRecords": "{}",
+            "X-IG-Device-ID": str(uuid.uuid4()),
+            "X-IG-Family-Device-ID": str(uuid.uuid4()),
+            "X-IG-Android-ID": f"android-{uuid.uuid4().hex[:16]}",
         }
 
-    @staticmethod
-    def build_headers(session_id="", extra=None):
-        """Builds standard Instagram API headers."""
-        import random
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
-        ]
-
-        headers = {
-            "User-Agent": random.choice(user_agents),
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "X-Instagram-AJAX": "1",
-            "X-IG-App-ID": "936619743392459",
-            "X-ASBD-ID": "198387",
-            "X-IG-WWW-Claim": "0",
-            "X-Requested-With": "XMLHttpRequest",
-            "X-CSRFToken": Session.generate_csrf_token(),
-            "Origin": "https://www.instagram.com",
-            "Referer": "https://www.instagram.com/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-        }
-
-        if session_id:
-            headers["Cookie"] = f"sessionid={session_id}"
-
-        if extra:
-            headers.update(extra)
-
-        return headers
+    @classmethod
+    def build_headers(cls, username=None, mobile=True, for_api=True):
+        ua = cls.random_ua(mobile=mobile)
+        ref = (
+            f"https://www.instagram.com/{username}/"
+            if username
+            else "https://www.instagram.com/"
+        )
+        if for_api:
+            h = {
+                "User-Agent": ua,
+                "Accept": "*/*",
+                "Accept-Language": random.choice(cls.LANGS),
+                "Accept-Encoding": "gzip, deflate",
+                "Origin": "https://www.instagram.com",
+                "Referer": ref,
+                "Connection": "keep-alive",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+                "X-IG-App-ID": cls.APP_ID,
+                "X-Requested-With": "XMLHttpRequest",
+                "X-ASBD-ID": "129477",
+                "X-IG-WWW-Claim": "0",
+                "DNT": "1",
+            }
+        else:
+            h = {
+                "User-Agent": ua,
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    "image/avif,image/webp,*/*;q=0.8"
+                ),
+                "Accept-Language": random.choice(cls.LANGS),
+                "Accept-Encoding": "gzip, deflate",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "DNT": "1",
+            }
+        return h
