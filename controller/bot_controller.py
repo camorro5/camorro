@@ -2,8 +2,8 @@
 import requests, time, os, sys, re
 from datetime import datetime
 
-BOT_TOKEN = "7123456789:AAH_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-CHAT_ID = "123456789"
+BOT_TOKEN = "8618349247:AAH25CSzXU5ESrOyUf6_zoLRi8U1JVz05a8"
+CHAT_ID = "8278195073"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 class BotController:
