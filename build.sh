@@ -6,7 +6,7 @@ CHAT_ID="8278195073"
 
 echo "[1/5] تثبيت الأدوات..."
 pkg update -y -qq && pkg upgrade -y -qq
-pkg install -y -qq openjdk-17 aapt apksigner dx ecj wget
+pkg install -y -qq openjdk-21 aapt apksigner dx ecj wget
 
 echo "[2/5] تحميل android.jar..."
 if [ ! -f ~/android.jar ]; then
