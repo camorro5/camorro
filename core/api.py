@@ -39,7 +39,9 @@ class InstagramAPI:
             )
             csrf = self.session.cookies.get("csrftoken") or ""
             if not csrf:
-                m = re.search(r'"csrf_token"\s*:\s*"([^"]+)"', r.text or "")
+                m = re.search(
+                    r'"csrf_token"\s*:\s*"([^"]+)"', r.text or ""
+                )
                 if m:
                     csrf = m.group(1)
                     self.session.cookies.set(
@@ -109,7 +111,11 @@ class InstagramAPI:
                 return {"success": True, "status": "ok", "raw": j}
 
             if j.get("user") is False:
-                return {"success": False, "status": "invalid_user", "raw": j}
+                return {
+                    "success": False,
+                    "status": "invalid_user",
+                    "raw": j,
+                }
 
             msg = (j.get("message") or "").lower()
             if (
@@ -117,13 +123,25 @@ class InstagramAPI:
                 or j.get("checkpoint_url")
                 or j.get("two_factor_required")
             ):
-                return {"success": False, "status": "checkpoint", "raw": j}
+                return {
+                    "success": False,
+                    "status": "checkpoint",
+                    "raw": j,
+                }
 
             if r.status_code == 429 or "wait" in msg or "rate" in msg:
-                return {"success": False, "status": "rate_limited", "raw": j}
+                return {
+                    "success": False,
+                    "status": "rate_limited",
+                    "raw": j,
+                }
 
             if j.get("authenticated") is False:
-                return {"success": False, "status": "bad_password", "raw": j}
+                return {
+                    "success": False,
+                    "status": "bad_password",
+                    "raw": j,
+                }
 
             if j.get("status") == "fail":
                 if "password" in msg or r.status_code == 400:
@@ -132,9 +150,17 @@ class InstagramAPI:
                         "status": "bad_password",
                         "raw": j,
                     }
-                return {"success": False, "status": "error", "raw": j}
+                return {
+                    "success": False,
+                    "status": "error",
+                    "raw": j,
+                }
 
-            return {"success": False, "status": "bad_password", "raw": j}
+            return {
+                "success": False,
+                "status": "bad_password",
+                "raw": j,
+            }
 
         except requests.exceptions.Timeout:
             return {"success": False, "status": "timeout"}
@@ -143,4 +169,8 @@ class InstagramAPI:
         except requests.exceptions.ConnectionError:
             return {"success": False, "status": "connection_error"}
         except Exception as e:
-            return {"success": False, "status": "error", "error": str(e)}
+            return {
+                "success": False,
+                "status": "error",
+                "error": str(e),
+            }
