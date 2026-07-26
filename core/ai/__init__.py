@@ -1,1 +1,1 @@
-# AI controller package
+# camoro AI package
