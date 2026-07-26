@@ -30,3 +30,4 @@ cookies*.txt
 Thumbs.db
 *.log
 debug_*.html
+ai_memory.json
