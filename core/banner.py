@@ -5,7 +5,6 @@ import os
 try:
     from colorama import init, Fore, Style
     init(autoreset=True)
-
     class C:
         R = Fore.RED
         G = Fore.GREEN
@@ -18,40 +17,32 @@ except Exception:
     class C:
         R = G = Y = C = M = W = E = ""
 
-
 def clear():
     os.system("clear" if os.name != "nt" else "cls")
-
 
 def show_banner():
     print(f"""{C.C}
 ╔══════════════════════════════════════════════════╗
-║           IGTOOL  —  Security Suite              ║
+║           IGTOOL  —  Security Suite v3.3         ║
 ║     OSINT · Dictionary · Brute (live progress)   ║
 ╚══════════════════════════════════════════════════╝{C.E}
 """)
 
-
 def info(msg):
     print(f"{C.C}[*]{C.E} {msg}")
-
 
 def ok(msg):
     print(f"{C.G}[+]{C.E} {msg}")
 
-
 def warn(msg):
     print(f"{C.Y}[!]{C.E} {msg}")
-
 
 def err(msg):
     print(f"{C.R}[-]{C.E} {msg}")
 
-
 def step(n, total, title):
     print(f"\n{C.M}[{n}/{total}]{C.E} {C.W}{title}{C.E}")
     print(f"{C.C}{'─' * 46}{C.E}")
-
 
 def ask(prompt, default=""):
     if default != "":
@@ -59,14 +50,12 @@ def ask(prompt, default=""):
         return s if s else default
     return input(f"{C.Y}[?]{C.E} {prompt}: ").strip()
 
-
 def yesno(prompt, default_yes=True):
     d = "Y/n" if default_yes else "y/N"
     a = input(f"{C.Y}[?]{C.E} {prompt} [{d}]: ").strip().lower()
     if not a:
         return default_yes
     return a in ("y", "yes", "1", "o", "oui")
-
 
 def menu(items, title=""):
     print()
