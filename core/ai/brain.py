@@ -1,101 +1,137 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-AI Brain — decision engine. Analyzes situation, picks best action.
-"""
-import time, random
-from .memory import AIMemory
-from .healer import AIHealer
-from ..banner import ai, info, ok, warn, err
+"""AI Brain — decision engine."""
+import time
+import random
 
-class AIBrain:
-    def __init__(self):
-        self.memory = AIMemory()
-        self.healer = AIHealer(self.memory)
-        self.current_target = ""
-        self.current_phase = ""
-        self.start_time = 0
-        self._state = "idle"
+try:
+    from ..banner import info, ok, warn, err, ai
+    from .memory import Memory
+except ImportError:
+    def info(m): print(f"[*] {m}")
+    def ok(m):   print(f"[+] {m}")
+    def warn(m): print(f"[!] {m}")
+    def err(m):  print(f"[-] {m}")
+    def ai(m):   print(f"[AI] {m}")
+    from memory import Memory
 
-    def start_session(self, target):
-        self.current_target = target
-        self.start_time = time.time()
-        self._state = "running"
-        target_stats = self.memory.get_target_stats(target)
-        strategy = self.healer.suggest_strategy(target_stats)
-        ai(f"Session started — target: @{target}")
-        ai(f"Strategy: {strategy} | History: {target_stats.get('ops', 0)} ops, "
-           f"{target_stats.get('successes', 0)} wins, {target_stats.get('failures', 0)} losses")
-        return strategy
 
-    def decide_osint_method(self, available_methods):
-        """Pick which OSINT method to try first based on past success."""
-        working = self.memory.data.get("working_methods", [])
-        failed = self.memory.data.get("failed_methods", [])
+class Brain:
+    def __init__(self, memory=None):
+        self.memory = memory or Memory()
+        self.state = "idle"
+        self.last_decision = None
+        self.decision_count = 0
 
-        # Prioritize methods that worked before
-        for method in working:
-            if method in available_methods:
-                return method
+    def think(self, context):
+        """
+        context = {
+            "consecutive_fails": int,
+            "session_fails": int,
+            "last_status": str,
+            "proxy_alive": bool,
+            "proxy_score": int,
+            "current_delay": float,
+            "total_tested": int,
+            "total_remaining": int,
+            "rate_limited": bool,
+        }
+        Returns dict with actions.
+        """
+        self.decision_count += 1
 
-        # Avoid methods that consistently failed
-        for method in available_methods:
-            if method not in failed:
-                return method
+        cf = context.get("consecutive_fails", 0)
+        sf = context.get("session_fails", 0)
+        ls = context.get("last_status", "")
+        p_alive = context.get("proxy_alive", True)
+        delay = context.get("current_delay", 3.0)
+        rl = context.get("rate_limited", False)
 
-        return available_methods[0] if available_methods else "web_profile_info"
+        decision = {
+            "action": "continue",
+            "reason": "",
+            "new_delay": delay,
+            "rotate_proxy": False,
+            "rotate_fingerprint": False,
+            "force_rest": 0,
+            "confidence": 1.0,
+        }
 
-    def handle_osint_result(self, success, method_used, data_present):
-        self.memory.record_method(method_used, success)
-        self.memory.record_operation(
-            self.current_target, f"osint:{method_used}",
-            success, f"data={data_present}"
-        )
-        if not success:
-            action = self.healer.diagnose("empty_data", self.current_target)
-            return self.healer.apply_healing(action)
-        return {"healed": False}
+        # ═══════════════════════════
+        # RATE LIMIT
+        # ═══════════════════════════
+        if rl or ls == "rate_limited":
+            decision["action"] = "rest"
+            decision["reason"] = "Rate limit detected"
+            decision["new_delay"] = random.uniform(45, 90)
+            decision["rotate_proxy"] = True
+            decision["rotate_fingerprint"] = True
+            decision["force_rest"] = random.uniform(30, 60)
+            self.state = "cooling"
+            ai(f"Brain: rate-limited → cooling {decision['force_rest']:.0f}s")
+            return decision
 
-    def handle_brute_error(self, error_status, password_tried=""):
-        """AI decides how to handle a brute force error."""
-        action = self.healer.diagnose(error_status, self.current_target)
-        ai(f"Detected: {error_status} | Action: {action['type']}")
+        # ═══════════════════════════
+        # CONSECUTIVE FAILS
+        # ═══════════════════════════
+        if cf >= 5:
+            decision["action"] = "rest"
+            decision["reason"] = f"{cf} consecutive fails"
+            decision["new_delay"] = random.uniform(20, 45)
+            decision["rotate_proxy"] = True
+            decision["force_rest"] = random.uniform(15, 30)
+            self.state = "cooling"
+            ai(f"Brain: {cf} fails → rest {decision['force_rest']:.0f}s")
+            return decision
 
-        if error_status == "rate_limited":
-            self.memory.update_adaptive_delay("brute_min", self.memory.get_adaptive_delay("brute_min") + 0.5)
-            self.memory.update_adaptive_delay("brute_max", self.memory.get_adaptive_delay("brute_max") + 1.0)
+        if cf >= 3:
+            decision["reason"] = f"{cf} consecutive fails — rotate proxy"
+            decision["rotate_proxy"] = True
+            decision["new_delay"] = min(delay * 1.5, 15)
+            ai(f"Brain: {cf} fails → rotate proxy, delay={decision['new_delay']:.1f}s")
+            return decision
 
-        if password_tried and error_status == "checkpoint":
-            self.memory.add_learning(f"Checkpoint password: {password_tried} for @{self.current_target}")
+        # ═══════════════════════════
+        # PROXY DEAD
+        # ═══════════════════════════
+        if not p_alive:
+            decision["reason"] = "Proxy dead"
+            decision["rotate_proxy"] = True
+            decision["new_delay"] = max(delay, random.uniform(2, 4))
+            self.state = "recovering"
+            return decision
 
-        return action
+        # ═══════════════════════════
+        # HIGH FAIL RATE
+        # ═══════════════════════════
+        tested = context.get("total_tested", 1)
+        if tested > 10 and sf / tested > 0.3:
+            decision["reason"] = "High fail rate — rotate proxy+fp"
+            decision["rotate_proxy"] = True
+            decision["rotate_fingerprint"] = True
+            decision["new_delay"] = random.uniform(8, 15)
+            ai(f"Brain: {sf}/{tested} fails → rotate proxy+fp")
+            return decision
 
-    def should_continue_brute(self, attempt, total, errors_recent):
-        """AI decides if brute should continue or pause."""
-        if errors_recent >= 10:
-            ai("Too many errors — pausing 120s to avoid permanent block")
-            time.sleep(120)
-            return True  # Continue after pause
+        # ═══════════════════════════
+        # NORMAL
+        # ═══════════════════════════
+        if self.state == "cooling":
+            self.state = "active"
 
-        if attempt > 0 and attempt % 500 == 0:
-            # Periodic health check
-            stats = self.memory.summary()
-            ai(f"Health check: {stats['success_rate']} success | {stats['rate_limits']} rate limits")
-        return True
+        # Adaptive delay
+        if self.memory:
+            avg = self.memory.average_delay("brute")
+            if avg and avg > 10:
+                decision["new_delay"] = max(avg * 0.9, delay)
 
-    def end_session(self, result_summary):
-        elapsed = time.time() - self.start_time
-        self._state = "idle"
-        self.memory.add_learning(
-            f"Session @{self.current_target} ended: {result_summary} in {elapsed:.0f}s"
-        )
-        ai(f"Session ended — {elapsed:.0f}s | {result_summary}")
+        decision["reason"] = "Normal — continue"
+        self.state = "active"
+        return decision
 
-    def get_status(self):
+    def get_state(self):
         return {
-            "target": self.current_target,
-            "phase": self.current_phase,
-            "state": self._state,
-            "memory": self.memory.summary(),
-            "elapsed": time.time() - self.start_time if self.start_time else 0
+            "state": self.state,
+            "decisions": self.decision_count,
+            "last": self.last_decision,
         }
