@@ -1,1 +1,0 @@
-# camoro AI package

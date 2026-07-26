@@ -1,1 +1,0 @@
-# igtool core
