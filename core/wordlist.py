@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Targeted dictionary from YOUR intel (+ optional OSINT)."""
-
-import itertools
-import os
-import re
+import itertools, os, re
 
 
 class WordlistAI:
@@ -22,24 +19,16 @@ class WordlistAI:
         "prince", "princess", "football", "soccer",
     ]
     LEET_MAP = {
-        "a": ["a", "4", "@"],
-        "e": ["e", "3"],
-        "i": ["i", "1"],
-        "o": ["o", "0"],
-        "s": ["s", "5", "$"],
-        "t": ["t", "7"],
-        "b": ["b", "8"],
-        "l": ["l", "1"],
-        "g": ["g", "9"],
+        "a": ["a", "4", "@"], "e": ["e", "3"], "i": ["i", "1"],
+        "o": ["o", "0"], "s": ["s", "5", "$"], "t": ["t", "7"],
+        "b": ["b", "8"], "l": ["l", "1"], "g": ["g", "9"],
     }
 
     def __init__(self, answers, target_count=18000):
         self.answers = answers or {}
         self.target_count = max(100, int(target_count))
         self.passwords = set()
-        self.stats = {
-            "intel": 0, "combo": 0, "leet": 0, "common": 0, "pad": 0
-        }
+        self.stats = {"intel": 0, "combo": 0, "leet": 0, "common": 0, "pad": 0}
 
     def generate(self):
         self.passwords.clear()
@@ -73,14 +62,7 @@ class WordlistAI:
         return len(self.passwords)
 
     def report(self):
-        return (
-            f"Dictionary: {self.count} | "
-            f"intel={self.stats['intel']} "
-            f"combo={self.stats['combo']} "
-            f"leet={self.stats['leet']} "
-            f"common={self.stats['common']} "
-            f"pad={self.stats['pad']}"
-        )
+        return f"Dictionary: {self.count} | intel={self.stats['intel']} combo={self.stats['combo']} leet={self.stats['leet']} common={self.stats['common']} pad={self.stats['pad']}"
 
     def _g(self, *keys):
         for k in keys:
@@ -97,11 +79,7 @@ class WordlistAI:
     def _split(self, s):
         if not s:
             return []
-        return [
-            p.strip()
-            for p in re.split(r"[\s._\-,;|/]+", str(s).strip())
-            if len(p.strip()) >= 2
-        ]
+        return [p.strip() for p in re.split(r"[\s._\-,;|/]+", str(s).strip()) if len(p.strip()) >= 2]
 
     def _add(self, pw, src="combo"):
         if not isinstance(pw, str):
@@ -121,13 +99,9 @@ class WordlistAI:
 
     def _intel_tokens(self):
         raw = []
-        for k in (
-            "full_name", "nickname", "username", "username_alt",
-            "partner", "child", "mother", "father", "pet", "best_friend",
-            "city", "hometown", "country", "school", "work",
-            "sport", "team", "artist", "movie", "color", "hobby", "car",
-            "email", "category", "biography",
-        ):
+        for k in ("full_name", "nickname", "username", "username_alt", "partner", "child", "mother", "father",
+                  "pet", "best_friend", "city", "hometown", "country", "school", "work", "sport", "team",
+                  "artist", "movie", "color", "hobby", "car", "email", "category", "biography"):
             v = self._g(k)
             if isinstance(v, str) and v:
                 raw.append(v)
@@ -143,11 +117,8 @@ class WordlistAI:
                 if kw:
                     raw.append(kw)
                     raw.extend(self._split(kw))
-        junk = {
-            "the", "and", "for", "you", "with", "this", "from", "https",
-            "http", "www", "com", "net", "org", "instagram", "follow",
-            "like", "bio", "null", "none", "true", "false",
-        }
+        junk = {"the", "and", "for", "you", "with", "this", "from", "https", "http", "www", "com", "net", "org",
+                "instagram", "follow", "like", "bio", "null", "none", "true", "false"}
         out, seen = [], set()
         for t in raw:
             t = str(t).strip()
@@ -179,11 +150,8 @@ class WordlistAI:
             except ValueError:
                 pass
         years += [str(y) for y in range(2016, 2028)]
-        years += [
-            "1990", "1991", "1992", "1993", "1994", "1995",
-            "1996", "1997", "1998", "1999", "2000", "2001",
-            "2002", "2003", "2004", "2005",
-        ]
+        years += ["1990", "1991", "1992", "1993", "1994", "1995", "1996", "1997", "1998", "1999",
+                   "2000", "2001", "2002", "2003", "2004", "2005"]
         bio = str(self._g("biography") or "")
         years += re.findall(r"\b(19\d{2}|20[0-2]\d)\b", bio)
         return list(dict.fromkeys([str(y) for y in years if y]))[:40]
@@ -225,23 +193,12 @@ class WordlistAI:
                 self._add(c, "intel")
 
     def _dates(self):
-        y = self._g("birth_year")
-        m = self._g("birth_month")
-        d = self._g("birth_day")
+        y, m, d = self._g("birth_year"), self._g("birth_month"), self._g("birth_day")
         try:
             if y and m and d:
                 yi, mi, di = int(y), int(m), int(d)
-                for p in (
-                    f"{di:02d}{mi:02d}{yi}",
-                    f"{yi}{mi:02d}{di:02d}",
-                    f"{di:02d}{mi:02d}{str(yi)[-2:]}",
-                    f"{mi:02d}{di:02d}{yi}",
-                    f"{di:02d}{mi:02d}",
-                    f"{mi:02d}{di:02d}",
-                    f"{di}{mi}{yi}",
-                    f"{yi}",
-                    f"{str(yi)[-2:]}",
-                ):
+                for p in (f"{di:02d}{mi:02d}{yi}", f"{yi}{mi:02d}{di:02d}", f"{di:02d}{mi:02d}{str(yi)[-2:]}",
+                          f"{mi:02d}{di:02d}{yi}", f"{di:02d}{mi:02d}", f"{mi:02d}{di:02d}", f"{di}{mi}{yi}", f"{yi}", f"{str(yi)[-2:]}"):
                     self._add(p, "intel")
             elif y:
                 self._add(str(y), "intel")
@@ -260,10 +217,7 @@ class WordlistAI:
             digits = re.sub(r"\D", "", str(ph))
             if len(digits) < 8:
                 continue
-            for piece in (
-                digits, digits[-10:], digits[-9:], digits[-8:],
-                digits[-6:], digits[-4:],
-            ):
+            for piece in (digits, digits[-10:], digits[-9:], digits[-8:], digits[-6:], digits[-4:]):
                 self._add(piece, "intel")
             if digits.startswith("212") and len(digits) >= 12:
                 self._add("0" + digits[3:], "intel")
@@ -285,8 +239,6 @@ class WordlistAI:
                 self._add(f"{a.capitalize()}{b.capitalize()}{y}", "combo")
                 self._add(f"{a.lower()}{y}", "combo")
                 self._add(f"{b.lower()}{y}", "combo")
-                self._add(f"{a.capitalize()}{y}", "combo")
-
         key_people = []
         for k in ("nickname", "partner", "pet", "child", "city", "team"):
             v = self._g(k)
@@ -301,13 +253,9 @@ class WordlistAI:
                 if str(p1).lower() == str(p2).lower():
                     continue
                 for sep in ("", "_", ".", "@"):
-                    self._add(
-                        f"{str(p1).lower()}{sep}{str(p2).lower()}", "combo"
-                    )
+                    self._add(f"{str(p1).lower()}{sep}{str(p2).lower()}", "combo")
                 for y in years[:6]:
-                    self._add(
-                        f"{str(p1).lower()}{str(p2).lower()}{y}", "combo"
-                    )
+                    self._add(f"{str(p1).lower()}{str(p2).lower()}{y}", "combo")
 
     def _username_patterns(self, years, numbers):
         u = self._g("username") or self.answers.get("username", "")
@@ -394,9 +342,7 @@ class WordlistAI:
             for y in years[:5]:
                 self._add(base + y, "common")
             self._add(base + "123", "common")
-        for frag in (
-            "love", "baby", "king", "queen", "pro", "real", "officiel", "maroc"
-        ):
+        for frag in ("love", "baby", "king", "queen", "pro", "real", "officiel", "maroc"):
             self._add(u + frag, "common")
             self._add(frag + u, "common")
 
@@ -427,32 +373,22 @@ class WordlistAI:
 
         final = sorted(set(final), key=score)
         if len(final) > self.target_count:
-            self.passwords = set(final[: self.target_count])
+            self.passwords = set(final[:self.target_count])
             return
-
         need = self.target_count - len(final)
         if need <= 0:
             self.passwords = set(final)
             return
-
         tlist = tokens[:30] or [u or "pass"]
         ylist = years[:20] or [str(y) for y in range(1995, 2028)]
         nlist = numbers[:20] or ["123", "1234", "1", "01"]
         seen = set(final)
         extra = []
-        for t, y, n, sp in itertools.product(
-            tlist, ylist, nlist[:10], self.SPECIALS
-        ):
-            cands = [
-                f"{str(t).lower()}{y}{sp}",
-                f"{str(t).capitalize()}{y}{sp}",
-                f"{str(t).lower()}{n}{sp}",
-                f"{str(t).capitalize()}{n}{sp}",
-                f"{y}{str(t).lower()}{sp}",
-                f"{str(t).lower()}_{y}",
-                f"{str(t).lower()}@{n}",
-                f"{str(t).lower()}{y}{n}",
-            ]
+        for t, y, n, sp in itertools.product(tlist, ylist, nlist[:10], self.SPECIALS):
+            cands = [f"{str(t).lower()}{y}{sp}", f"{str(t).capitalize()}{y}{sp}",
+                     f"{str(t).lower()}{n}{sp}", f"{str(t).capitalize()}{n}{sp}",
+                     f"{y}{str(t).lower()}{sp}", f"{str(t).lower()}_{y}",
+                     f"{str(t).lower()}@{n}", f"{str(t).lower()}{y}{n}"]
             for v in cands:
                 if 4 <= len(v) <= 64 and v not in seen:
                     seen.add(v)
@@ -463,4 +399,4 @@ class WordlistAI:
             if len(extra) >= need:
                 break
         final.extend(extra)
-        self.passwords = set(final[: self.target_count])
+        self.passwords = set(final[:self.target_count])
