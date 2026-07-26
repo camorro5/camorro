@@ -1,17 +1,17 @@
-# IGTOOL
+# 🐫 CAMORO — Instagram Security Tool
 
-Authorized Instagram security assessment toolkit.
+**Geonode SOCKS5 proxies + AI controller. 6 OSINT methods. 18000-word dictionary.**
 
-**OSINT → Interview Intel → Targeted Dictionary (18k) → Brute (live progress + auto proxy failover)**
+## Why CAMORO
 
-Use only on accounts you own or are explicitly authorized to test.
+- **Geonode API** — SOCKS5 elite proxies, AI-scored (0-100)
+- **10 proxies only** — each tested, auto-replaced on death
+- **AI brain** — watches everything, auto-heals, never repeats errors
+- **6 OSINT endpoints** — real name, bio, followers, posts, private/public
+- **Dictionary from intel** — not random, based on your interview
 
-## Install
-
-### Linux / WSL
+## Quick start
 
 ```bash
-git clone https://github.com/YOUR_USER/YOUR_REPO.git
-cd YOUR_REPO
 pip install -r requirements.txt
-python3 igtool.py
+python3 camoro.py
