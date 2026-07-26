@@ -1,94 +1,116 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Intelligence Interview — interactive intel for wordlist."""
+"""Interview — YOU give intel → dictionary."""
 
 import json
 import os
-from .banner import info, ask, C
+from .banner import info, ok, ask, C
 
 
 class Interviewer:
-    """Collects human intel to combine with OSINT hints."""
-
-    def __init__(self, username, hints, output_dir):
+    def __init__(self, username, hints=None, output_dir="output"):
         self.username = username.strip().lstrip("@")
         self.hints = hints or {}
         self.output_dir = output_dir
         self.answers = {}
 
     def run(self):
-        print(f"\n{C.C}┌──────────────────────────────────────────┐{C.E}")
-        print(f"{C.C}│{C.E}  INTELLIGENCE INTERVIEW                  {C.C}│")
-        print(f"{C.C}│{C.E}  Answer to build a TARGETED wordlist      {C.C}│")
-        print(f"{C.C}│{C.E}  (ENTER = skip any question)              {C.C}│")
-        print(f"{C.C}└──────────────────────────────────────────┘{C.E}\n")
-
+        print(f"""
+{C.C}╔══════════════════════════════════════════════════╗
+║   أنت تعطي المعلومات → الأداة تولّد القاموس      ║
+║   ENTER = تخطّي أي سؤال                          ║
+╚══════════════════════════════════════════════════╝{C.E}
+""")
         if self.hints.get("full_name"):
-            info(f"OSINT name hint: {self.hints.get('full_name')}")
+            info(f"OSINT name: {self.hints.get('full_name')}")
+        if self.hints.get("biography"):
+            info(f"OSINT bio : {str(self.hints.get('biography'))[:90]}")
         if self.hints.get("followers"):
             info(
-                f"OSINT stats: {self.hints.get('followers')} followers, "
+                f"OSINT     : {self.hints.get('followers')} followers | "
                 f"{self.hints.get('posts', 0)} posts"
             )
-        if self.hints.get("biography"):
-            info(f"OSINT bio: {str(self.hints.get('biography'))[:80]}")
 
-        self.answers["username"] = self.username
+        a = self.answers
+        a["username"] = self.username
 
-        self.answers["full_name"] = ask(
-            "Full name", self.hints.get("full_name", "")
+        print(f"\n{C.W}── الهوية ──{C.E}")
+        a["full_name"] = ask(
+            "Full name / الاسم الكامل", self.hints.get("full_name", "")
         )
-        self.answers["nickname"] = ask("Nickname / Alias")
-        self.answers["birth_year"] = ask("Birth year (YYYY)")
-        self.answers["birth_month"] = ask("Birth month (1-12)")
-        self.answers["birth_day"] = ask("Birth day (1-31)")
+        a["nickname"] = ask("Nickname / الكنية")
+        a["username_alt"] = ask("Other usernames comma / يوزرات أخرى")
 
-        self.answers["partner"] = ask("Partner / Spouse name")
-        self.answers["pet"] = ask("Pet name")
-        self.answers["child"] = ask("Child name")
-        self.answers["mother"] = ask("Mother's name")
-        self.answers["father"] = ask("Father's name")
+        print(f"\n{C.W}── التاريخ ──{C.E}")
+        a["birth_year"] = ask("Birth year YYYY / عام الازدياد")
+        a["birth_month"] = ask("Birth month 1-12")
+        a["birth_day"] = ask("Birth day 1-31")
 
-        self.answers["city"] = ask("City / Hometown")
-        self.answers["sport"] = ask("Favorite sport")
-        self.answers["team"] = ask("Favorite team")
-        self.answers["artist"] = ask("Favorite artist/band")
-        self.answers["movie"] = ask("Favorite movie")
-        self.answers["color"] = ask("Favorite color")
-        self.answers["number"] = ask("Lucky number")
-        self.answers["hobby"] = ask("Hobby")
-        self.answers["car"] = ask("Car brand/model")
-        self.answers["phone"] = ask("Phone number (if known)")
-        self.answers["email"] = ask("Email (if known)")
-        self.answers["extra"] = ask("Extra keywords (comma-separated)")
+        print(f"\n{C.W}── العائلة ──{C.E}")
+        a["partner"] = ask("Partner / الشريك-ة")
+        a["child"] = ask("Child / الولد")
+        a["mother"] = ask("Mother / الأم")
+        a["father"] = ask("Father / الأب")
+        a["pet"] = ask("Pet / حيوان")
+        a["best_friend"] = ask("Best friend / الصاحب")
 
-        # Merge OSINT into answers for WordlistAI
-        self.answers["biography"] = self.hints.get("biography", "")
-        self.answers["bio_tokens"] = self.hints.get("bio_tokens", [])
-        self.answers["osint_tokens"] = self.hints.get("bio_tokens", [])
-        self.answers["osint_years"] = self.hints.get("years", [])
-        self.answers["years"] = self.hints.get("years", [])
-        self.answers["phones"] = self.hints.get("phones", [])
-        self.answers["osint_phones"] = self.hints.get("phones", [])
-        self.answers["user_parts"] = self.hints.get("user_parts", [])
-        self.answers["stat_numbers"] = self.hints.get("stat_numbers", [])
-        self.answers["followers"] = self.hints.get("followers", 0)
-        self.answers["following"] = self.hints.get("following", 0)
-        self.answers["posts"] = self.hints.get("posts", 0)
-        self.answers["category"] = self.hints.get("category", "")
-        self.answers["external_url"] = self.hints.get("external_url", "")
+        print(f"\n{C.W}── المكان ──{C.E}")
+        a["city"] = ask("City / المدينة")
+        a["hometown"] = ask("Hometown / المدينة الأصلية")
+        a["country"] = ask("Country / البلد")
+        a["school"] = ask("School / المدرسة")
+        a["work"] = ask("Work / العمل")
 
-        if not self.answers.get("full_name"):
-            self.answers["full_name"] = self.hints.get("full_name", "")
+        print(f"\n{C.W}── اهتمامات ──{C.E}")
+        a["sport"] = ask("Sport")
+        a["team"] = ask("Team")
+        a["artist"] = ask("Artist")
+        a["movie"] = ask("Movie")
+        a["color"] = ask("Color")
+        a["hobby"] = ask("Hobby")
+        a["car"] = ask("Car")
+        a["number"] = ask("Lucky number")
 
-        self._save()
-        info("Interview saved ✓")
-        return self.answers
+        print(f"\n{C.W}── تواصل ──{C.E}")
+        a["phone"] = ask("Phone / التيليفون")
+        a["email"] = ask("Email")
+        a["extra"] = ask("Extra keywords comma / كلمات زيادة")
+        a["known_passwords"] = ask(
+            "Old known passwords comma / كلمات سر قديمة معروفة"
+        )
 
-    def _save(self):
+        a["biography"] = self.hints.get("biography", "")
+        a["bio_tokens"] = list(self.hints.get("bio_tokens", []) or [])
+        a["osint_tokens"] = list(self.hints.get("bio_tokens", []) or [])
+        a["osint_years"] = list(self.hints.get("years", []) or [])
+        a["years"] = list(self.hints.get("years", []) or [])
+        a["phones"] = list(self.hints.get("phones", []) or [])
+        a["osint_phones"] = list(self.hints.get("phones", []) or [])
+        a["user_parts"] = list(self.hints.get("user_parts", []) or [])
+        a["stat_numbers"] = list(self.hints.get("stat_numbers", []) or [])
+        a["followers"] = self.hints.get("followers", 0)
+        a["following"] = self.hints.get("following", 0)
+        a["posts"] = self.hints.get("posts", 0)
+        a["category"] = self.hints.get("category", "")
+        a["external_url"] = self.hints.get("external_url", "")
+
+        if not a.get("full_name"):
+            a["full_name"] = self.hints.get("full_name", "")
+        if a.get("phone"):
+            a["phones"] = list(a.get("phones") or []) + [a["phone"]]
+
         path = os.path.join(
             self.output_dir, self.username, "interview.json"
         )
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.answers, f, indent=2, ensure_ascii=False)
+            json.dump(a, f, indent=2, ensure_ascii=False)
+
+        filled = sum(
+            1
+            for k, v in a.items()
+            if k != "username" and v not in (None, "", 0, [], {})
+        )
+        ok(f"Interview saved → {path}")
+        info(f"Fields filled: {filled}")
+        return a
