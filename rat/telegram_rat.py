@@ -10,8 +10,8 @@ import os, sys, time, json, base64, threading, subprocess, requests
 from datetime import datetime
 
 # ============ CONFIG ============
-BOT_TOKEN = "7123456789:AAH_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # غير هذا
-CHAT_ID = "123456789"  # غير هذا
+BOT_TOKEN = "8618349247:AAH25CSzXU5ESrOyUf6_zoLRi8U1JVz05a8"  # غير هذا
+CHAT_ID = "8278195073"  # غير هذا
 # ================================
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
