@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-HikCam-Hijack v1.0
-اختراق كاميرات Hikvision IP - بدون كلمة سر (Zero Bruteforce)
+yassine
+اختراق كاميرات yassine IP - بدون كلمة سر (Zero Bruteforce)
 التقنيات: Cookie Bypass (CVE-2013-4976) + Direct Endpoint Access + Config Injection
-Author: HackerAI Penetration Testing Suite
+Author: yassine Penetration Testing Suite
 """
 
 import requests
