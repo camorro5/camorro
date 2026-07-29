@@ -1,9 +1,0 @@
-__pycache__/
-*.zip
-*.log
-.env
-output/*
-!output/.gitkeep
-shell.txt
-shell.php
-payload.zip
