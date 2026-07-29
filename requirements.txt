@@ -1,4 +1,2 @@
-
-git
-git commit -m "Add requirements.txt — pip install -r requirements.txt"
-git push
+requests>=2.31.0
+urllib3>=2.0.0
