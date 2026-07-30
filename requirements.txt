@@ -1,0 +1,43 @@
+# ============================================================
+# SPID-Xploit v2.0 - Python Dependencies (CORRECTED)
+# ============================================================
+
+# === Core Networking ===
+requests==2.31.0
+urllib3==2.1.0
+certifi==2023.11.17
+
+# === Web Parsing ===
+beautifulsoup4==4.12.3
+lxml==5.1.0
+html5lib==1.1
+
+# === Cryptography & SAML ===
+cryptography==41.0.7
+pycryptodome==3.20.0
+signxml==7.0.2
+xmlsec==1.3.14
+elementpath==4.4.0
+xmlschema==3.4.1
+asn1crypto==1.5.1
+
+# === AI & Machine Learning ===
+numpy==1.26.3
+pandas==2.1.5
+scikit-learn==1.4.0
+joblib==1.3.2
+threadpoolctl==3.2.0
+
+# === DNS & Network ===
+dnspython==2.6.1
+scapy==2.5.0
+
+# === CLI & UI ===
+rich==13.7.0
+colorama==0.4.6
+art==6.1.0
+tqdm==4.66.1
+prompt_toolkit==3.0.43
+
+# === Utilities ===
+pyyaml==6.0.1
